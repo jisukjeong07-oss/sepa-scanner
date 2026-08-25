@@ -1,0 +1,400 @@
+# -*- coding: utf-8 -*-
+"""
+SEPA 스캔 결과 → 단일 HTML 대시보드
+
+CSV를 읽어 데이터를 HTML 안에 직접 심는다. 외부 라이브러리도 서버도 필요 없고,
+파일 하나만 있으면 어느 기기에서든 열린다.
+
+사용법:
+    python3 make_dashboard.py                 # 오늘자 결과로 생성 후 브라우저 열기
+    python3 make_dashboard.py --no-open       # 파일만 생성
+    python3 make_dashboard.py --csv output/sepa_scan_20260824.csv
+"""
+
+import os
+import json
+import argparse
+import datetime as dt
+import webbrowser
+
+import pandas as pd
+
+BASE = os.path.dirname(os.path.abspath(__file__))
+OUT_DIR = os.path.join(BASE, "output")
+
+# 트렌드템플릿 8조건: (CSV 컬럼명, 화면 표기)
+CONDITIONS = [
+    ("C1_above_150_200", "현재가 > 150일선·200일선"),
+    ("C2_150_over_200", "150일선 > 200일선"),
+    ("C3_200_rising", "200일선 1개월 이상 상승"),
+    ("C4_50_over_150_200", "50일선 > 150일선·200일선"),
+    ("C5_above_50", "현재가 > 50일선"),
+    ("C6_above_low_30", "52주 저점 대비 +30% 이상"),
+    ("C7_near_high_25", "52주 고점 대비 -25% 이내"),
+    ("C8_rs_pass", "RS Rating 기준 충족"),
+]
+
+
+def _rows(df: pd.DataFrame) -> list:
+    out = []
+    for idx, r in df.iterrows():
+        fails = [label for col, label in CONDITIONS
+                 if col in df.columns and not bool(r.get(col, False))]
+        turnover = r.get("avg_turnover_20d")
+        try:
+            turnover = float(turnover)
+        except (TypeError, ValueError):
+            turnover = None
+
+        out.append({
+            "ticker": str(idx),
+            "name": str(r.get("name", idx)),
+            "market": str(r.get("market", "")),
+            "price": _f(r.get("price")),
+            "rs": _f(r.get("RS")),
+            "high": _f(r.get("vs_52w_high_%")),
+            "low": _f(r.get("vs_52w_low_%")),
+            "ma50": _f(r.get("vs_MA50_%")),
+            "slope": _f(r.get("MA200_slope_%")),
+            "turnover": turnover,
+            "met": int(r.get("conditions_met", 0) or 0),
+            "pass": bool(r.get("PASS", False)),
+            "fails": fails,
+        })
+    return out
+
+
+def _f(v):
+    try:
+        f = float(v)
+        return None if pd.isna(f) else round(f, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+HTML = """<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEPA 스캔 · __DATE__</title>
+<style>
+:root{
+  --paper:#EDF0F3; --surface:#FFFFFF; --ink:#12161C; --ink-2:#4A525C;
+  --muted:#8B939D; --line:#D5DBE1;
+  --up:#C0343B;      /* 한국 시장 관행: 강세는 빨강 */
+  --down:#1B5FA6;    /* 약세는 파랑 */
+  --rail:#DDE3E9;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Segoe UI",
+              "Noto Sans KR",sans-serif;
+  font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+/* 헤더 */
+header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:22px}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+         color:var(--muted);margin-bottom:6px}
+h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
+.sub{color:var(--ink-2);font-size:13px;margin-top:4px}
+
+/* 요약 */
+.stats{display:flex;gap:28px;flex-wrap:wrap;margin:18px 0 24px}
+.stat .k{font-size:11px;color:var(--muted);letter-spacing:.06em}
+.stat .v{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.stat .v.hl{color:var(--up)}
+
+/* 조작부 */
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+          background:var(--surface);border:1px solid var(--line);
+          border-radius:10px;padding:12px 14px;margin-bottom:16px}
+.seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:var(--surface);padding:7px 13px;font-size:13px;
+            cursor:pointer;color:var(--ink-2);font-family:inherit}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff;font-weight:600}
+.seg button+button{border-left:1px solid var(--line)}
+input[type=search]{border:1px solid var(--line);border-radius:7px;padding:7px 11px;
+  font-size:13px;font-family:inherit;min-width:150px;background:var(--surface);color:var(--ink)}
+label.rs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+input[type=range]{width:120px;accent-color:var(--up)}
+button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--up);outline-offset:2px}
+
+/* 표 */
+table{width:100%;border-collapse:collapse;background:var(--surface);
+      border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th{font-size:11px;color:var(--muted);text-align:right;padding:11px 10px;
+   border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;
+   font-weight:600;letter-spacing:.04em;user-select:none}
+th:first-child,td:first-child{text-align:left;padding-left:14px}
+th[aria-sort]{color:var(--ink)}
+td{padding:10px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowrap}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:#F6F8FA}
+.tk{font-weight:700;letter-spacing:-.01em}
+.nm{font-size:11px;color:var(--muted);display:block;font-weight:400}
+.pos{color:var(--up)} .neg{color:var(--down)}
+.badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
+       background:#F0F2F5;color:var(--ink-2);margin-left:6px;font-weight:600}
+.badge.p{background:var(--up);color:#fff}
+
+/* 시그니처: 52주 고점 근접도 트랙 (조건7 = 고점 -25% 이내) */
+.rail{position:relative;width:96px;height:16px;margin-left:auto}
+.rail .track{position:absolute;top:7px;left:0;right:0;height:2px;background:var(--rail)}
+.rail .zone{position:absolute;top:5px;right:0;width:100%;height:6px;
+            background:linear-gradient(90deg,rgba(192,52,59,0) 0%,rgba(192,52,59,.16) 100%)}
+.rail .dot{position:absolute;top:3px;width:10px;height:10px;border-radius:50%;
+           background:var(--up);border:2px solid var(--surface);transform:translateX(-50%)}
+.rail .dot.out{background:var(--muted)}
+.rail .peak{position:absolute;top:1px;right:0;width:2px;height:14px;background:var(--ink)}
+
+/* 조건 상세 */
+tr.detail td{background:#F8FAFB;padding:14px 14px 16px;text-align:left;
+             border-bottom:1px solid var(--line)}
+.cond{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;padding:4px 9px;border-radius:6px;background:#E8F0E9;color:#245C35}
+.chip.no{background:#FBE9EA;color:#8E2229;font-weight:600}
+.detail h4{margin:0 0 9px;font-size:12px;color:var(--muted);letter-spacing:.06em;font-weight:600}
+.empty{padding:40px 14px;text-align:center;color:var(--muted);background:var(--surface);
+       border:1px solid var(--line);border-radius:10px}
+footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
+       border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:640px){
+  .wrap{padding:18px 12px 60px}
+  h1{font-size:21px}
+  .hide-s{display:none}
+  .rail{width:64px}
+  .stats{gap:18px}
+}
+@media (prefers-reduced-motion:no-preference){
+  tbody tr{transition:background .12s ease}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">Minervini Trend Template · 8조건 정량 스캔</div>
+  <h1>SEPA 종목 후보</h1>
+  <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)</div>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="k">8조건 통과</div><div class="v hl num">__NPASS__</div></div>
+  <div class="stat"><div class="k">7조건 관찰</div><div class="v num">__NNEAR__</div></div>
+  <div class="stat"><div class="k">화면 표시</div><div class="v num" id="shown">0</div></div>
+</div>
+
+<div class="controls">
+  <div class="seg" role="group" aria-label="구분">
+    <button data-view="pass" aria-pressed="true">통과</button>
+    <button data-view="near" aria-pressed="false">관찰</button>
+    <button data-view="all" aria-pressed="false">전체</button>
+  </div>
+  <div class="seg" role="group" aria-label="시장">
+    <button data-mkt="ALL" aria-pressed="true">전 시장</button>
+    <button data-mkt="KR" aria-pressed="false">한국</button>
+    <button data-mkt="US" aria-pressed="false">미국</button>
+  </div>
+  <label class="rs">RS <input type="range" id="rs" min="0" max="99" value="0">
+    <span class="num" id="rsv">0</span> 이상</label>
+  <input type="search" id="q" placeholder="종목 검색" aria-label="종목 검색">
+</div>
+
+<div id="host"></div>
+
+<footer>
+행을 누르면 8개 조건 중 무엇이 미달인지 볼 수 있습니다.
+RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니버스 안에서 백분위로 환산한 근사값입니다.
+이 화면은 SEPA 1단계(기술적 필터)만 담고 있어, 2단계 펀더멘털과 3단계 진입 시점은 직접 확인해야 합니다.
+투자 참고 자료이며 투자 권유가 아닙니다.
+</footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+let view="pass", mkt="ALL", minRS=0, q="", sortKey="rs", sortDir=-1, open=null;
+
+const COLS=[
+  ["ticker","종목",""],
+  ["price","현재가",""],
+  ["rs","RS",""],
+  ["high","52주 고점 대비","rail"],
+  ["low","저점 대비%","hide-s"],
+  ["ma50","50일선%","hide-s"],
+  ["slope","200일선 기울기%","hide-s"],
+  ["turnover","거래대금","hide-s"],
+];
+
+const fmtMoney=(v,m)=>{
+  if(v==null) return "–";
+  return m==="KR" ? (v/1e8).toLocaleString(undefined,{maximumFractionDigits:0})+"억"
+                  : "$"+(v/1e6).toLocaleString(undefined,{maximumFractionDigits:0})+"M";
+};
+const sign=v=>v==null?"":(v>0?"pos":(v<0?"neg":""));
+const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2});
+
+// 고점 근접도: -25%(왼쪽) → 0%(오른쪽, 신고가)
+function rail(v){
+  if(v==null) return '<div class="rail"></div>';
+  const p=Math.max(0,Math.min(100,(v+25)/25*100));
+  const out=v<-25?" out":"";
+  return `<div class="rail" title="52주 고점 대비 ${v}%">
+    <div class="zone"></div><div class="track"></div><div class="peak"></div>
+    <div class="dot${out}" style="left:${p}%"></div></div>`;
+}
+
+function filtered(){
+  return DATA.filter(d=>{
+    if(view==="pass" && !d.pass) return false;
+    if(view==="near" && (d.pass || d.met<7)) return false;
+    if(mkt!=="ALL" && d.market!==mkt) return false;
+    if(d.rs!=null && d.rs<minRS) return false;
+    if(q){
+      const s=(d.ticker+" "+d.name).toLowerCase();
+      if(!s.includes(q.toLowerCase())) return false;
+    }
+    return true;
+  }).sort((a,b)=>{
+    const x=a[sortKey], y=b[sortKey];
+    if(x==null) return 1;
+    if(y==null) return -1;
+    if(typeof x==="string") return x.localeCompare(y)*sortDir;
+    return (x-y)*sortDir;
+  });
+}
+
+function render(){
+  const rows=filtered();
+  document.getElementById("shown").textContent=rows.length;
+  const host=document.getElementById("host");
+
+  if(!rows.length){
+    host.innerHTML='<div class="empty">조건에 맞는 종목이 없습니다. RS 기준을 낮추거나 구분을 바꿔 보세요.</div>';
+    return;
+  }
+
+  let h='<table><thead><tr>';
+  for(const [k,label,cls] of COLS){
+    const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
+    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${label}</th>`;
+  }
+  h+='</tr></thead><tbody>';
+
+  for(const d of rows){
+    const same=d.name===d.ticker;
+    h+=`<tr data-t="${d.ticker}" tabindex="0">
+      <td><span class="tk">${d.ticker}</span>${d.pass?'<span class="badge p">통과</span>':`<span class="badge">${d.met}/8</span>`}
+          ${same?"":`<span class="nm">${d.name}</span>`}</td>
+      <td class="num">${num(d.price)}</td>
+      <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
+      <td>${rail(d.high)}</td>
+      <td class="num hide-s ${sign(d.low)}">${num(d.low)}</td>
+      <td class="num hide-s ${sign(d.ma50)}">${num(d.ma50)}</td>
+      <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
+      <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td></tr>`;
+
+    if(open===d.ticker){
+      const chips = d.fails.length
+        ? d.fails.map(f=>`<span class="chip no">미달 · ${f}</span>`).join("")
+        : '<span class="chip">8개 조건 모두 충족</span>';
+      h+=`<tr class="detail"><td colspan="${COLS.length}">
+        <h4>${d.ticker} · 조건 점검</h4><div class="cond">${chips}</div></td></tr>`;
+    }
+  }
+  host.innerHTML=h+"</tbody></table>";
+}
+
+document.addEventListener("click",e=>{
+  const seg=e.target.closest(".seg button");
+  if(seg){
+    const grp=seg.parentElement;
+    [...grp.children].forEach(b=>b.setAttribute("aria-pressed","false"));
+    seg.setAttribute("aria-pressed","true");
+    if(seg.dataset.view) view=seg.dataset.view;
+    if(seg.dataset.mkt) mkt=seg.dataset.mkt;
+    open=null; render(); return;
+  }
+  const th=e.target.closest("th[data-k]");
+  if(th){
+    const k=th.dataset.k;
+    if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=-1;}
+    render(); return;
+  }
+  const tr=e.target.closest("tbody tr[data-t]");
+  if(tr){ open = open===tr.dataset.t ? null : tr.dataset.t; render(); }
+});
+
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Enter" && e.key!==" ") return;
+  const tr=e.target.closest && e.target.closest("tbody tr[data-t]");
+  if(tr){ e.preventDefault(); open = open===tr.dataset.t ? null : tr.dataset.t; render(); }
+});
+
+document.getElementById("rs").addEventListener("input",e=>{
+  minRS=+e.target.value;
+  document.getElementById("rsv").textContent=minRS;
+  render();
+});
+document.getElementById("q").addEventListener("input",e=>{q=e.target.value;render();});
+
+render();
+</script>
+</body>
+</html>
+"""
+
+
+def build(csv_path: str, out_path: str = None, open_browser: bool = True) -> str:
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(
+            f"스캔 결과 파일이 없습니다: {csv_path}\n"
+            f"  먼저 python3 sepa_scanner.py --market US 를 실행하세요."
+        )
+
+    df = pd.read_csv(csv_path, index_col=0, encoding="utf-8-sig")
+    df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
+
+    n_pass = int(df["PASS"].sum()) if "PASS" in df.columns else 0
+    n_near = int(((df.get("PASS") != True) & (df.get("conditions_met", 0) >= 7)).sum())
+
+    stamp = os.path.basename(csv_path).replace("sepa_scan_", "").replace(".csv", "")
+    try:
+        shown_date = dt.datetime.strptime(stamp, "%Y%m%d").strftime("%Y년 %m월 %d일")
+    except ValueError:
+        shown_date = dt.date.today().strftime("%Y년 %m월 %d일")
+
+    html = (HTML
+            .replace("__DATA__", json.dumps(_rows(df), ensure_ascii=False))
+            .replace("__DATE__", shown_date)
+            .replace("__TOTAL__", f"{len(df):,}")
+            .replace("__KRN__", f"{int((df.get('market') == 'KR').sum()):,}")
+            .replace("__USN__", f"{int((df.get('market') == 'US').sum()):,}")
+            .replace("__NPASS__", str(n_pass))
+            .replace("__NNEAR__", str(n_near)))
+
+    out_path = out_path or os.path.join(OUT_DIR, f"SEPA대시보드_{stamp}.html")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    print(f"대시보드 생성: {out_path}")
+    if open_browser:
+        webbrowser.open("file://" + os.path.abspath(out_path))
+        print("브라우저에서 열었습니다.")
+    return out_path
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--csv", default=None)
+    ap.add_argument("--no-open", action="store_true")
+    a = ap.parse_args()
+    csv_path = a.csv or os.path.join(OUT_DIR, f"sepa_scan_{dt.date.today():%Y%m%d}.csv")
+    build(csv_path, open_browser=not a.no_open)

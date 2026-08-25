@@ -1,0 +1,10 @@
+pandas>=2.0
+numpy>=1.24
+pyarrow>=12.0
+finance-datareader>=0.9.50
+pykrx>=1.0.45          # 예비용 (--kr-source pykrx)
+yfinance>=0.2.40
+lxml>=4.9
+reportlab>=4.0
+requests>=2.31
+python-dotenv>=1.0
