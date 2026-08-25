@@ -1,0 +1,48 @@
+name: SEPA Daily Scan
+
+on:
+  schedule:
+    - cron: '30 9 * * 1-5'    # 한국 18:30 (한국 마감 후)
+    - cron: '30 21 * * 1-5'   # 한국 06:30 (미국 마감 후)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - name: Run scan
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: python run_daily.py --market US --min-rs 90 --no-open
+
+      - name: Publish to Pages
+        run: |
+          mkdir -p site
+          cp output/*.html site/
+          cp output/*.pdf site/ 2>/dev/null || true
+          cp "$(ls -t output/SEPA대시보드_*.html | head -1)" site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: scan
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/deploy-pages@v4
