@@ -27,8 +27,6 @@ jobs:
 
       - run: pip install -r requirements.txt
 
-      # 지난 실행에서 만든 대시보드를 복원한다.
-      # 이게 없으면 날짜 선택 목록에 오늘 것만 남는다.
       - name: Restore history
         uses: actions/cache@v4
         with:
@@ -44,7 +42,6 @@ jobs:
       - name: Build site
         run: |
           mkdir -p site
-          # 최근 30일치만 유지
           ls -t output/SEPA대시보드_*.html 2>/dev/null | head -30 | while read f; do
             cp "$f" site/
           done
