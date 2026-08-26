@@ -104,6 +104,26 @@ header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:22px
          color:var(--muted);margin-bottom:6px}
 h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .sub{color:var(--ink-2);font-size:13px;margin-top:4px}
+.hrow{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.hact{display:flex;gap:8px;align-items:center}
+.btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
+     padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn:hover{opacity:.88}
+select#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+  font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);cursor:pointer}
+
+/* 인쇄(=PDF 저장) 시 화면 조작부는 감추고 표만 남긴다 */
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body{background:#fff}
+  .controls,.hact,footer .noprint{display:none !important}
+  .wrap{max-width:none;padding:0}
+  table{border:1px solid #999}
+  tbody tr{page-break-inside:avoid}
+  thead{display:table-header-group}
+  .hide-s{display:table-cell !important}
+  .rail .zone{background:#eee}
+}
 
 /* 요약 */
 .stats{display:flex;gap:28px;flex-wrap:wrap;margin:18px 0 24px}
@@ -180,9 +200,17 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <body>
 <div class="wrap">
 <header>
-  <div class="eyebrow">Minervini Trend Template · 8조건 정량 스캔</div>
-  <h1>SEPA 종목 후보</h1>
-  <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)</div>
+  <div class="hrow">
+    <div>
+      <div class="eyebrow">Minervini Trend Template · 8조건 정량 스캔</div>
+      <h1>SEPA 종목 후보</h1>
+      <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)</div>
+    </div>
+    <div class="hact">
+      <select id="day" aria-label="날짜 선택"></select>
+      <button id="pdf" class="btn">PDF로 저장</button>
+    </div>
+  </div>
 </header>
 
 <div class="stats">
@@ -219,6 +247,8 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
 
 <script>
 const DATA = __DATA__;
+const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
+const CURRENT = "__CURRENT__";
 let view="pass", mkt="ALL", minRS=0, q="", sortKey="rs", sortDir=-1, open=null;
 
 const COLS=[
@@ -289,9 +319,10 @@ function render(){
 
   for(const d of rows){
     const same=d.name===d.ticker;
+    const nm = same ? "" : (d.name.length>7 ? d.name.slice(0,7)+"…" : d.name);
     h+=`<tr data-t="${d.ticker}" tabindex="0">
       <td><span class="tk">${d.ticker}</span>${d.pass?'<span class="badge p">통과</span>':`<span class="badge">${d.met}/8</span>`}
-          ${same?"":`<span class="nm">${d.name}</span>`}</td>
+          ${same?"":`<span class="nm" title="${d.name}">${nm}</span>`}</td>
       <td class="num">${num(d.price)}</td>
       <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
       <td>${rail(d.high)}</td>
@@ -344,11 +375,61 @@ document.getElementById("rs").addEventListener("input",e=>{
 });
 document.getElementById("q").addEventListener("input",e=>{q=e.target.value;render();});
 
+// PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
+document.getElementById("pdf").addEventListener("click",()=>window.print());
+
+// 날짜 선택: 같은 폴더의 다른 날짜 대시보드로 이동
+(function(){
+  const sel=document.getElementById("day");
+  if(!DAYS.length){ sel.style.display="none"; return; }
+  for(const d of DAYS){
+    const o=document.createElement("option");
+    o.value=d.file; o.textContent=d.label;
+    if(d.file===CURRENT) o.selected=true;
+    sel.appendChild(o);
+  }
+  sel.addEventListener("change",e=>{ location.href=e.target.value; });
+})();
+
 render();
 </script>
 </body>
 </html>
 """
+
+
+def _day_list(out_dir: str, current_file: str) -> list:
+    """
+    같은 폴더에 있는 대시보드 파일들을 찾아 날짜 목록을 만든다.
+    과거 결과를 다시 열어볼 수 있게 하기 위함이다.
+    """
+    import glob
+    import re
+
+    days = []
+    for f in glob.glob(os.path.join(out_dir, "SEPA대시보드_*.html")):
+        base = os.path.basename(f)
+        m = re.search(r"(\d{8})", base)
+        if not m:
+            continue
+        try:
+            label = dt.datetime.strptime(m.group(1), "%Y%m%d").strftime("%Y-%m-%d (%a)")
+        except ValueError:
+            label = m.group(1)
+        days.append({"file": base, "label": label, "key": m.group(1)})
+
+    # 현재 생성 중인 파일이 아직 디스크에 없을 수 있으므로 확실히 포함시킨다
+    if not any(d["file"] == current_file for d in days):
+        m = re.search(r"(\d{8})", current_file)
+        if m:
+            try:
+                label = dt.datetime.strptime(m.group(1), "%Y%m%d").strftime("%Y-%m-%d (%a)")
+            except ValueError:
+                label = m.group(1)
+            days.append({"file": current_file, "label": label, "key": m.group(1)})
+
+    days.sort(key=lambda d: d["key"], reverse=True)   # 최신이 위로
+    return days
 
 
 def build(csv_path: str, out_path: str = None, open_browser: bool = True) -> str:
@@ -381,6 +462,12 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True) -> str
 
     out_path = out_path or os.path.join(OUT_DIR, f"SEPA대시보드_{stamp}.html")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    cur_file = os.path.basename(out_path)
+    days = _day_list(os.path.dirname(out_path), cur_file)
+    html = (html
+            .replace("__DAYS__", json.dumps(days, ensure_ascii=False))
+            .replace("__CURRENT__", cur_file))
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
 
