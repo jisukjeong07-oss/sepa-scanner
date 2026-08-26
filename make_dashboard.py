@@ -319,7 +319,7 @@ function render(){
 
   for(const d of rows){
     const same=d.name===d.ticker;
-    const nm = same ? "" : (d.name.length>7 ? d.name.slice(0,7)+"…" : d.name);
+    const nm = same ? "" : (d.name.length>9 ? d.name.slice(0,7)+"…" : d.name);
     h+=`<tr data-t="${d.ticker}" tabindex="0">
       <td><span class="tk">${d.ticker}</span>${d.pass?'<span class="badge p">통과</span>':`<span class="badge">${d.met}/8</span>`}
           ${same?"":`<span class="nm" title="${d.name}">${nm}</span>`}</td>
