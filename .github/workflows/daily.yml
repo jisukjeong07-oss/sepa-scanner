@@ -26,7 +26,7 @@ jobs:
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-        run: python run_daily.py --market US --min-rs 90 --no-open
+        run: python run_daily.py --market ALL --min-rs 90 --no-open
 
       - name: Publish to Pages
         run: |
