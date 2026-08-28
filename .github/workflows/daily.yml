@@ -11,6 +11,10 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -28,12 +32,31 @@ jobs:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: python run_daily.py --market ALL --min-rs 90 --no-open
 
-      - name: Publish to Pages
+      # history/ 는 캐시가 아니라 저장소에 직접 커밋한다.
+      # 캐시는 만료·초기화될 수 있어 "날짜별 조회"가 끊기는 원인이 됐었다.
+      # 커밋해두면 저장소 자체가 날짜별 기록이 되어 영구히 남는다.
+      - name: Commit history
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add history/
+          if git diff --cached --quiet; then
+            echo "history 변경 없음 — 커밋 생략"
+          else
+            git commit -m "SEPA 스캔 결과 $(date -u +%F)"
+            git pull --rebase origin main
+            git push
+          fi
+
+      - name: Build site
         run: |
           mkdir -p site
-          cp output/*.html site/
+          cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
           cp output/*.pdf site/ 2>/dev/null || true
-          cp "$(ls -t output/SEPA대시보드_*.html | head -1)" site/index.html
+          latest=$(ls -t history/SEPA대시보드_*.html | head -1)
+          cp "$latest" site/index.html
+          echo "배포 파일 수: $(ls site/ | wc -l)"
+          echo "최신 파일: $latest"
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -44,5 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/deploy-pages@v4
+      - id: deployment
+        uses: actions/deploy-pages@v4
