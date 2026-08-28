@@ -19,8 +19,12 @@ import webbrowser
 
 import pandas as pd
 
+import market_calendar as mc
+import strategy as strat
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(BASE, "output")
+HIST_DIR = os.path.join(BASE, "history")   # 저장소에 커밋되어 영구 보관되는 폴더
 
 # 트렌드템플릿 8조건: (CSV 컬럼명, 화면 표기)
 CONDITIONS = [
@@ -185,6 +189,52 @@ tr.detail td{background:#F8FAFB;padding:14px 14px 16px;text-align:left;
        border:1px solid var(--line);border-radius:10px}
 footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
        border-top:1px solid var(--line);padding-top:14px}
+
+/* 시장 상태 배너 */
+.mkt-status{display:flex;gap:18px;flex-wrap:wrap;align-items:center;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--ink-2)}
+.mkt-status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.mkt-status .dot.open{background:#2f8f4e}
+.mkt-status .dot.closed{background:var(--muted)}
+.mkt-status b{color:var(--ink);font-weight:700}
+
+/* 매매전략 진입 버튼 */
+.strat-open{border:1px solid var(--navy,#1a2b4c);background:transparent;color:#1a2b4c;
+  border-radius:6px;padding:4px 11px;font-size:12px;font-weight:700;cursor:pointer;
+  font-family:inherit;margin-left:10px;vertical-align:middle}
+.strat-open:hover{background:#1a2b4c;color:#fff}
+
+/* 매매전략 모달 */
+.strat-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,26,.55);
+  z-index:50;align-items:flex-start;justify-content:center;padding:26px 14px;overflow-y:auto}
+.strat-overlay.show{display:flex}
+.strat-modal{background:#fff;border-radius:12px;max-width:760px;width:100%;
+  box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
+.strat-close{position:absolute;top:14px;right:16px;border:0;background:none;
+  font-size:20px;line-height:1;cursor:pointer;color:#888}
+.strat-pad{padding:30px 32px 26px}
+.strat-h1{font-size:18pt;font-weight:800;color:#1a2b4c;margin:0 0 4px}
+.strat-meta{font-size:9.5pt;color:#777;margin-bottom:18px}
+.strat-h2{font-size:14pt;font-weight:700;color:#1a2b4c;margin:22px 0 8px;
+  border-left:4px solid #d9730d;padding-left:9px}
+.strat-body{font-size:10pt;line-height:1.75;color:#111111}
+.strat-body ul{margin:4px 0 0;padding-left:18px}
+.strat-body li{margin-bottom:5px}
+.strat-pt{color:#d9730d;font-weight:700}
+.strat-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:10pt}
+.strat-table caption{caption-side:top;text-align:left;color:#1a2b4c;
+  font-weight:700;font-size:10.5pt;margin-bottom:6px}
+.strat-table th{background:#1a2b4c;color:#fff;font-size:9pt;padding:7px 9px;text-align:left}
+.strat-table td{padding:6px 9px;border-bottom:1px solid #eee;color:#111111}
+.strat-table tr:nth-child(even) td{background:#F7F9FB}
+.strat-disclaimer{margin-top:20px;padding-top:12px;border-top:1px solid #e5e5e5;
+  font-size:8.5pt;color:#888;line-height:1.6}
+@media print{
+  .strat-overlay{position:static;background:none;padding:0}
+  .strat-modal{box-shadow:none;max-width:none}
+  .strat-close{display:none}
+}
 @media (max-width:640px){
   .wrap{padding:18px 12px 60px}
   h1{font-size:21px}
@@ -204,7 +254,9 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <div>
       <div class="eyebrow">Minervini Trend Template · 8조건 정량 스캔</div>
       <h1>SEPA 종목 후보</h1>
-      <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)</div>
+      <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)
+        <button id="stratOpen" class="strat-open">매매전략</button>
+      </div>
     </div>
     <div class="hact">
       <select id="day" aria-label="날짜 선택"></select>
@@ -213,10 +265,22 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   </div>
 </header>
 
+<div class="mkt-status">
+  <span><span class="dot __KR_DOT__"></span>한국 <b>__KR_LABEL__</b></span>
+  <span><span class="dot __US_DOT__"></span>미국 <b>__US_LABEL__</b></span>
+</div>
+
 <div class="stats">
   <div class="stat"><div class="k">8조건 통과</div><div class="v hl num">__NPASS__</div></div>
   <div class="stat"><div class="k">7조건 관찰</div><div class="v num">__NNEAR__</div></div>
   <div class="stat"><div class="k">화면 표시</div><div class="v num" id="shown">0</div></div>
+</div>
+
+<div class="strat-overlay" id="stratOverlay">
+  <div class="strat-modal">
+    <button class="strat-close" id="stratClose" aria-label="닫기">&times;</button>
+    <div class="strat-pad" id="stratBody"></div>
+  </div>
 </div>
 
 <div class="controls">
@@ -249,6 +313,7 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
 const DATA = __DATA__;
 const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "__CURRENT__";
+const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
 let view="pass", mkt="ALL", minRS=0, q="", sortKey="rs", sortDir=-1, open=null;
 
 const COLS=[
@@ -319,7 +384,7 @@ function render(){
 
   for(const d of rows){
     const same=d.name===d.ticker;
-    const nm = same ? "" : (d.name.length>9 ? d.name.slice(0,7)+"…" : d.name);
+    const nm = same ? "" : (d.name.length>9 ? d.name.slice(0,9)+"…" : d.name);
     h+=`<tr data-t="${d.ticker}" tabindex="0">
       <td><span class="tk">${d.ticker}</span>${d.pass?'<span class="badge p">통과</span>':`<span class="badge">${d.met}/8</span>`}
           ${same?"":`<span class="nm" title="${d.name}">${nm}</span>`}</td>
@@ -391,6 +456,59 @@ document.getElementById("pdf").addEventListener("click",()=>window.print());
   sel.addEventListener("change",e=>{ location.href=e.target.value; });
 })();
 
+// ── 매매전략 패널 ────────────────────────────────────────
+function renderStrategy(){
+  const openBtn = document.getElementById("stratOpen");
+  if(!STRATEGY){ openBtn.style.display="none"; return; }
+
+  const body = document.getElementById("stratBody");
+  let h = `<div class="strat-h1">SEPA 매매전략 — ${STRATEGY.date}</div>
+    <div class="strat-meta">생성 시각 ${STRATEGY.generated_at} · ${STRATEGY.session.label}</div>`;
+
+  for(const sec of STRATEGY.sections){
+    h += `<div class="strat-h2">${sec.title}</div><div class="strat-body"><ul>`;
+    for(const line of sec.body){
+      h += `<li>${highlightPt(line)}</li>`;
+    }
+    h += `</ul></div>`;
+  }
+
+  if(STRATEGY.table && STRATEGY.table.length){
+    h += `<table class="strat-table"><caption>RS 90 이상 진입 경과 — 통과 종목</caption>
+      <thead><tr><th>종목</th><th>시장</th><th>RS</th><th>52W고점대비%</th><th>경과</th></tr></thead><tbody>`;
+    for(const r of STRATEGY.table){
+      h += `<tr><td><strong>${r.name}</strong> <span style="color:#999;font-size:8.5pt">${r.ticker}</span></td>
+        <td>${r.market}</td><td>${r.rs==null?'–':r.rs}</td>
+        <td>${r.high==null?'–':r.high}</td>
+        <td class="strat-pt">${r.elapsed}</td></tr>`;
+    }
+    h += `</tbody></table>`;
+  }
+
+  h += `<div class="strat-disclaimer">${STRATEGY.disclaimer}</div>`;
+  body.innerHTML = h;
+}
+
+function highlightPt(text){
+  // "-7~8%", "20~25%" 같은 핵심 수치를 오렌지로 강조 (백슬래시 없는 문자 클래스 사용)
+  const re = new RegExp("(-?[0-9]+(?:[.][0-9]+)?%(?:~-?[0-9]+(?:[.][0-9]+)?%)?|[0-9]+~[0-9]+%)", "g");
+  return text.replace(re, m => `<span class="strat-pt">${m}</span>`);
+}
+
+renderStrategy();
+document.getElementById("stratOpen")?.addEventListener("click", ()=>{
+  document.getElementById("stratOverlay").classList.add("show");
+});
+document.getElementById("stratClose")?.addEventListener("click", ()=>{
+  document.getElementById("stratOverlay").classList.remove("show");
+});
+document.getElementById("stratOverlay")?.addEventListener("click", e=>{
+  if(e.target.id==="stratOverlay") e.currentTarget.classList.remove("show");
+});
+document.addEventListener("keydown", e=>{
+  if(e.key==="Escape") document.getElementById("stratOverlay")?.classList.remove("show");
+});
+
 render();
 </script>
 </body>
@@ -432,46 +550,86 @@ def _day_list(out_dir: str, current_file: str) -> list:
     return days
 
 
-def build(csv_path: str, out_path: str = None, open_browser: bool = True) -> str:
+def build(csv_path: str, out_path: str = None, open_browser: bool = True,
+         hist_dir: str = None, generate_strategy: bool = True) -> str:
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
             f"스캔 결과 파일이 없습니다: {csv_path}\n"
             f"  먼저 python3 sepa_scanner.py --market US 를 실행하세요."
         )
 
+    hist_dir = hist_dir or HIST_DIR
+    os.makedirs(hist_dir, exist_ok=True)
+
     df = pd.read_csv(csv_path, index_col=0, encoding="utf-8-sig")
     df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
+
+    stamp = os.path.basename(csv_path).replace("sepa_scan_", "").replace(".csv", "")
+    try:
+        scan_date = dt.datetime.strptime(stamp, "%Y%m%d").date()
+    except ValueError:
+        scan_date = dt.date.today()
+        stamp = scan_date.strftime("%Y%m%d")
+    date_str = scan_date.strftime("%Y-%m-%d")
+    shown_date = scan_date.strftime("%Y년 %m월 %d일")
+
+    # ── 휴장일이면 해당 시장 데이터를 화면에서 숨긴다 ──────────
+    kr_stat = mc.kr_status(date_str)
+    us_stat = mc.us_status(date_str)
+    if not kr_stat["open"] and "market" in df.columns:
+        df = df[df["market"] != "KR"]
+    if not us_stat["open"] and "market" in df.columns:
+        df = df[df["market"] != "US"]
 
     n_pass = int(df["PASS"].sum()) if "PASS" in df.columns else 0
     n_near = int(((df.get("PASS") != True) & (df.get("conditions_met", 0) >= 7)).sum())
 
-    stamp = os.path.basename(csv_path).replace("sepa_scan_", "").replace(".csv", "")
-    try:
-        shown_date = dt.datetime.strptime(stamp, "%Y%m%d").strftime("%Y년 %m월 %d일")
-    except ValueError:
-        shown_date = dt.date.today().strftime("%Y년 %m월 %d일")
+    # ── 매매전략 생성 (RS90 레지스트리는 history/ 에 누적) ──────
+    strategy_json = "null"
+    if generate_strategy and "PASS" in df.columns:
+        try:
+            registry = strat.load_registry(hist_dir)
+            registry = strat.update_registry(registry, df, date_str)
+            strat.save_registry(hist_dir, registry)
+            result = strat.build_strategy(df, date_str, registry)
+            strategy_json = json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            print(f"[경고] 매매전략 생성 실패(대시보드는 정상 생성됨): {e}")
+
+    def _dot(open_): return "open" if open_ else "closed"
 
     html = (HTML
             .replace("__DATA__", json.dumps(_rows(df), ensure_ascii=False))
+            .replace("__STRATEGY__", strategy_json)
             .replace("__DATE__", shown_date)
             .replace("__TOTAL__", f"{len(df):,}")
             .replace("__KRN__", f"{int((df.get('market') == 'KR').sum()):,}")
             .replace("__USN__", f"{int((df.get('market') == 'US').sum()):,}")
             .replace("__NPASS__", str(n_pass))
-            .replace("__NNEAR__", str(n_near)))
+            .replace("__NNEAR__", str(n_near))
+            .replace("__KR_DOT__", _dot(kr_stat["open"]))
+            .replace("__US_DOT__", _dot(us_stat["open"]))
+            .replace("__KR_LABEL__", kr_stat["label"])
+            .replace("__US_LABEL__", us_stat["label"]))
 
-    out_path = out_path or os.path.join(OUT_DIR, f"SEPA대시보드_{stamp}.html")
+    # 최종 파일은 history/ (영구 보관) 와 output/ (당일 산출물) 양쪽에 둔다.
+    fname = f"SEPA대시보드_{stamp}.html"
+    hist_path = os.path.join(hist_dir, fname)
+    out_path = out_path or os.path.join(OUT_DIR, fname)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    cur_file = os.path.basename(out_path)
-    days = _day_list(os.path.dirname(out_path), cur_file)
-    html = (html
-            .replace("__DAYS__", json.dumps(days, ensure_ascii=False))
-            .replace("__CURRENT__", cur_file))
+    days = _day_list(hist_dir, fname)
+    final_html = (html
+                 .replace("__DAYS__", json.dumps(days, ensure_ascii=False))
+                 .replace("__CURRENT__", fname))
+
+    with open(hist_path, "w", encoding="utf-8") as f:
+        f.write(final_html)
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        f.write(final_html)
 
     print(f"대시보드 생성: {out_path}")
+    print(f"히스토리 저장: {hist_path}")
     if open_browser:
         webbrowser.open("file://" + os.path.abspath(out_path))
         print("브라우저에서 열었습니다.")
@@ -482,6 +640,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=None)
     ap.add_argument("--no-open", action="store_true")
+    ap.add_argument("--hist-dir", default=None)
     a = ap.parse_args()
     csv_path = a.csv or os.path.join(OUT_DIR, f"sepa_scan_{dt.date.today():%Y%m%d}.csv")
-    build(csv_path, open_browser=not a.no_open)
+    build(csv_path, open_browser=not a.no_open, hist_dir=a.hist_dir)

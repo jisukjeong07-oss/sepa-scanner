@@ -300,30 +300,51 @@ def _http_get(url: str, timeout: int = 20) -> str:
         return r.read().decode("utf-8", errors="replace")
 
 
+def _save_us_universe(cache: str, tickers: list, names: dict):
+    with open(cache, "w", encoding="utf-8") as f:
+        for t in tickers:
+            f.write(f"{t}\t{names.get(t, t)}\n")
+
+
+def _load_us_universe(cache: str) -> tuple:
+    tickers, names = [], {}
+    with open(cache, encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            t = parts[0]
+            tickers.append(t)
+            names[t] = parts[1] if len(parts) > 1 else t
+    return tickers, names
+
+
 def us_universe(min_expected: int = 100) -> list:
     """
-    미국 스캔 유니버스(S&P500) 티커 목록.
+    미국 스캔 유니버스(S&P500) 티커 목록. 이름은 us_names() 캐시에 함께 저장된다.
 
     RS는 유니버스 내 백분위이므로, 목록이 몇 종목으로 쪼그라들면 RS 자체가
     무의미해진다. 따라서 소수만 확보되면 조용히 넘어가지 않고 실패시킨다.
     """
     cache = os.path.join(CACHE_DIR, "us_universe.txt")
 
-    # 1) 위키피디아 (브라우저 UA로 요청)
+    # 1) 위키피디아 (브라우저 UA로 요청) — 티커와 회사명을 함께 확보
     try:
         from io import StringIO
         html = _http_get("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
         tables = pd.read_html(StringIO(html))
         for t in tables:
             if "Symbol" in t.columns:
-                tickers = (t["Symbol"].astype(str)
-                           .str.strip()
-                           .str.replace(".", "-", regex=False)
-                           .tolist())
+                sym = (t["Symbol"].astype(str).str.strip()
+                       .str.replace(".", "-", regex=False))
+                name_col = next((c for c in ("Security", "Company", "Name")
+                                if c in t.columns), None)
+                nm = t[name_col].astype(str).str.strip() if name_col else sym
+                pairs = dict(zip(sym, nm))
+                tickers = sorted(set(sym))
                 if len(tickers) >= min_expected:
-                    tickers = sorted(set(tickers))
-                    with open(cache, "w") as f:
-                        f.write("\n".join(tickers))
+                    _save_us_universe(cache, tickers, pairs)
                     print(f"[US] S&P500 목록 {len(tickers)}종목 확보 (위키피디아)")
                     return tickers
         print("[US] 위키 표에서 Symbol 컬럼을 찾지 못함")
@@ -340,12 +361,14 @@ def us_universe(min_expected: int = 100) -> list:
             csv_txt = _http_get(url)
             df = pd.read_csv(StringIO(csv_txt))
             col = next((c for c in ("Symbol", "symbol") if c in df.columns), None)
+            name_col = next((c for c in ("Name", "Security", "name") if c in df.columns), None)
             if col:
-                tickers = sorted(set(df[col].astype(str).str.strip()
-                                     .str.replace(".", "-", regex=False)))
+                sym = df[col].astype(str).str.strip().str.replace(".", "-", regex=False)
+                nm = df[name_col].astype(str).str.strip() if name_col else sym
+                pairs = dict(zip(sym, nm))
+                tickers = sorted(set(sym))
                 if len(tickers) >= min_expected:
-                    with open(cache, "w") as f:
-                        f.write("\n".join(tickers))
+                    _save_us_universe(cache, tickers, pairs)
                     print(f"[US] S&P500 목록 {len(tickers)}종목 확보 (CSV 미러)")
                     return tickers
         except Exception as e:
@@ -353,7 +376,7 @@ def us_universe(min_expected: int = 100) -> list:
 
     # 3) 이전 실행에서 저장해둔 목록
     if os.path.exists(cache):
-        tickers = [l.strip() for l in open(cache) if l.strip()]
+        tickers, _ = _load_us_universe(cache)
         if len(tickers) >= min_expected:
             print(f"[US] 저장된 목록 재사용 ({len(tickers)}종목)")
             return tickers
@@ -366,6 +389,15 @@ def us_universe(min_expected: int = 100) -> list:
         "  - 계속 실패하면 티커 목록을 cache/us_universe.txt 에\n"
         "    한 줄에 하나씩 직접 저장해두면 그 목록을 사용합니다."
     )
+
+
+def us_names(tickers) -> dict:
+    """종목코드 -> 회사명. us_universe() 호출 시 저장된 캐시를 사용한다."""
+    cache = os.path.join(CACHE_DIR, "us_universe.txt")
+    if os.path.exists(cache):
+        _, names = _load_us_universe(cache)
+        return {t: names.get(t, t) for t in tickers}
+    return {t: t for t in tickers}
 
 
 def fetch_us(tickers: list, period: str = "2y") -> dict:
@@ -507,9 +539,10 @@ def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
         results.append(r)
 
     if market in ("US", "ALL"):
-        data = fetch_us(us_universe())
+        tickers = us_universe()
+        data = fetch_us(tickers)
         r = screen(data, "US", min_rs)
-        r.insert(0, "name", r.index)
+        r.insert(0, "name", pd.Series(us_names(r.index)))
         results.append(r)
 
     out = pd.concat(results)

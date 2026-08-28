@@ -70,7 +70,8 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True):
 
     # 산출물
     pdf_path = make_report.build(csv_path, stage2_csv=stage2_path)
-    html_path = make_dashboard.build(csv_path, open_browser=open_browser)
+    html_path = make_dashboard.build(csv_path, open_browser=open_browser,
+                                     hist_dir=make_dashboard.HIST_DIR)
 
     print(f"\n완료")
     print(f"  PDF        : {pdf_path}")
