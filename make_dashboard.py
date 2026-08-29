@@ -494,19 +494,34 @@ document.getElementById("q").addEventListener("input",e=>{q=e.target.value;rende
 document.getElementById("pdf").addEventListener("click",()=>window.print());
 
 // 날짜·세션 선택: 실제 데이터가 있는 조합만 이동, 없으면 안내만 하고 되돌림
-(function(){
+(async function(){
   const input = document.getElementById("day");
   const msg = document.getElementById("dayMsg");
   const seg = document.getElementById("sessSeg");
-  if(!DAYS.length){ input.parentElement.style.display="none"; seg.style.display="none"; return; }
+
+  // 페이지에 박아넣은 DAYS는 '이 페이지를 만든 순간'의 목록이라 오래된 페이지일수록
+  // 낡아 있다. manifest.json은 만들 때마다 매번 새로 덮어써지는 별도 파일이라
+  // 항상 최신이므로, 열릴 때 다시 읽어와서 있으면 그걸 우선 쓴다.
+  // file:// 로 로컬에서 더블클릭해 열면 브라우저 보안 정책상 fetch가 막히는 게
+  // 정상이라, 그런 경우엔 조용히 내장된 DAYS로 대체한다.
+  let days = DAYS;
+  try {
+    const res = await fetch("manifest.json", {cache: "no-store"});
+    if(res.ok){
+      const fresh = await res.json();
+      if(Array.isArray(fresh) && fresh.length) days = fresh;
+    }
+  } catch(_e) { /* 로컬 file:// 등 — 내장 DAYS로 대체 */ }
+
+  if(!days.length){ input.parentElement.style.display="none"; seg.style.display="none"; return; }
 
   // key(YYYYMMDD) + session -> file 맵
   const byKeySess = {};      // "20260828_PM" -> file
   const sessionsByKey = {};  // "20260828" -> Set(["AM","PM"])
-  let minKey = DAYS[0].key, maxKey = DAYS[0].key;
+  let minKey = days[0].key, maxKey = days[0].key;
   let curKey = null, curSess = "PM";
 
-  for(const d of DAYS){
+  for(const d of days){
     byKeySess[`${d.key}_${d.session}`] = d.file;
     (sessionsByKey[d.key] ??= new Set()).add(d.session);
     if(d.key < minKey) minKey = d.key;
@@ -778,8 +793,17 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(final_html)
 
+    # 날짜 목록을 별도 공유 파일에도 저장한다.
+    # HTML 안에 박아넣은 __DAYS__는 '그 페이지를 만든 순간'에 고정되어 버려서,
+    # 나중에 다른 날짜를 백필해도 이미 배포된 페이지는 그 사실을 모른다.
+    # 화면이 열릴 때 이 파일을 다시 읽어오면 그 문제가 없어진다.
+    manifest_path = os.path.join(hist_dir, "manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(days, f, ensure_ascii=False)
+
     print(f"대시보드 생성: {out_path}")
     print(f"히스토리 저장: {hist_path}")
+    print(f"매니페스트 갱신: {manifest_path}")
     if open_browser:
         webbrowser.open("file://" + os.path.abspath(out_path))
         print("브라우저에서 열었습니다.")
