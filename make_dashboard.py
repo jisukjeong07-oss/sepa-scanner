@@ -644,7 +644,7 @@ def _actions_url() -> str:
 def _day_list(out_dir: str, current_file: str) -> list:
     """
     같은 폴더에 있는 대시보드 파일들을 찾아 날짜+세션 목록을 만든다.
-    파일명 규칙: SEPA대시보드_YYYYMMDD_SESSION.html (SESSION: AM/PM/MANUAL)
+    파일명 규칙: SEPA대시보드_YYYYMMDD_SESSION.html (SESSION: AM/PM/MANUAL/HIST)
     세션 접미사가 없는 예전 파일은 MANUAL로 취급해 하위호환한다.
     """
     import glob
@@ -653,7 +653,7 @@ def _day_list(out_dir: str, current_file: str) -> list:
     days = []
 
     def _entry(fname):
-        m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL))?\.html$", fname)
+        m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL|HIST))?\.html$", fname)
         if not m:
             return None
         key, session = m.group(1), (m.group(2) or "MANUAL")
@@ -661,7 +661,7 @@ def _day_list(out_dir: str, current_file: str) -> list:
             base_label = dt.datetime.strptime(key, "%Y%m%d").strftime("%Y-%m-%d (%a)")
         except ValueError:
             base_label = key
-        sess_label = {"AM": "장전", "PM": "장마감", "MANUAL": "수동"}[session]
+        sess_label = {"AM": "장전", "PM": "장마감", "MANUAL": "수동", "HIST": "소급"}[session]
         return {"file": fname, "key": key, "session": session,
                "label": f"{base_label} · {sess_label}"}
 
@@ -690,7 +690,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             f"  먼저 python3 sepa_scanner.py --market US 를 실행하세요."
         )
     session = (session or "MANUAL").upper()
-    if session not in ("AM", "PM", "MANUAL"):
+    if session not in ("AM", "PM", "MANUAL", "HIST"):
         session = "MANUAL"
 
     hist_dir = hist_dir or HIST_DIR
@@ -706,7 +706,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         scan_date = dt.date.today()
         stamp = scan_date.strftime("%Y%m%d")
     date_str = scan_date.strftime("%Y-%m-%d")
-    sess_kr = {"AM": "장전", "PM": "장마감", "MANUAL": "수동 조회"}[session]
+    sess_kr = {"AM": "장전", "PM": "장마감", "MANUAL": "수동 조회", "HIST": "소급 조회"}[session]
     shown_date = scan_date.strftime("%Y년 %m월 %d일") + f" · {sess_kr}"
 
     # ── 휴장일이면 해당 시장 데이터를 화면에서 숨긴다 ──────────
@@ -791,7 +791,7 @@ if __name__ == "__main__":
     ap.add_argument("--csv", default=None)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--hist-dir", default=None)
-    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL"])
+    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL", "HIST"])
     a = ap.parse_args()
     csv_path = a.csv or os.path.join(OUT_DIR, f"sepa_scan_{dt.date.today():%Y%m%d}.csv")
     build(csv_path, open_browser=not a.no_open, hist_dir=a.hist_dir, session=a.session)

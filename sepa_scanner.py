@@ -400,16 +400,30 @@ def us_names(tickers) -> dict:
     return {t: t for t in tickers}
 
 
-def fetch_us(tickers: list, period: str = "2y") -> dict:
-    """yfinance 배치 다운로드. 100개씩 끊어서 요청."""
+def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2y") -> dict:
+    """
+    yfinance 배치 다운로드. 100개씩 끊어서 요청.
+    start/end(YYYYMMDD)를 주면 그 구간으로, 안 주면 오늘 기준 period(기본 2y)로 받는다.
+    과거 특정 날짜를 '오늘'인 것처럼 스캔하고 싶을 때 end를 그 날짜로 지정한다.
+    """
     import yfinance as yf
+
+    kwargs = {}
+    if start and end:
+        s = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+        # yfinance의 end는 배타적(그 날짜 자체는 제외)이라 하루를 더해줘야
+        # 지정한 종료일 종가까지 포함된다.
+        e_date = dt.datetime.strptime(end, "%Y%m%d").date() + dt.timedelta(days=1)
+        kwargs = {"start": s, "end": e_date.strftime("%Y-%m-%d")}
+    else:
+        kwargs = {"period": period}
 
     closes, volumes = [], []
     for i in range(0, len(tickers), 100):
         batch = tickers[i:i + 100]
         print(f"[US] {i+1}~{i+len(batch)} / {len(tickers)} 다운로드...")
-        df = yf.download(batch, period=period, auto_adjust=True,
-                         progress=False, group_by="column", threads=True)
+        df = yf.download(batch, auto_adjust=True,
+                         progress=False, group_by="column", threads=True, **kwargs)
         if df is None or df.empty:
             continue
         closes.append(df["Close"])
@@ -539,8 +553,21 @@ def us_market_caps(tickers, sleep_sec: float = 0.25) -> dict:
     return out
 
 
-def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
-    today = dt.date.today()
+def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None) -> pd.DataFrame:
+    """
+    as_of: 'YYYYMMDD'. 주면 그 날짜를 '오늘'인 것처럼 취급해 과거 시점을 스캔한다
+    (백필용). 안 주면 실제 오늘 날짜로 스캔한다.
+
+    과거 시점 스캔의 한계 두 가지:
+      - 시가총액은 과거 값을 구할 수 없어 항상 '지금 이 순간'의 값이 들어간다.
+      - 미국 유니버스는 위키피디아의 '현재' S&P500 구성이라, 그 과거 날짜에
+        실제로 지수에 속해 있었는지는 반영되지 않는다(생존편향).
+    """
+    if as_of:
+        today = dt.datetime.strptime(as_of, "%Y%m%d").date()
+        print(f"[안내] 과거 시점 소급 스캔: {today} 기준 (시가총액은 현재 값 사용)")
+    else:
+        today = dt.date.today()
     start = (today - dt.timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
     end = today.strftime("%Y%m%d")
     results = []
@@ -577,7 +604,7 @@ def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
     if market in ("US", "ALL"):
         try:
             tickers = us_universe()
-            data = fetch_us(tickers)
+            data = fetch_us(tickers, start=start, end=end)
             r = screen(data, "US", min_rs)
             r.insert(0, "name", pd.Series(us_names(r.index)))
             # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
@@ -626,5 +653,8 @@ if __name__ == "__main__":
     ap.add_argument("--min-rs", type=int, default=MIN_RS)
     ap.add_argument("--kr-source", default="fdr", choices=["fdr", "pykrx"],
                     help="한국 데이터 소스 (기본 fdr: 네이버, KRX 로그인 불필요)")
+    ap.add_argument("--date", default=None,
+                    help="YYYYMMDD. 과거 특정 날짜를 '오늘'처럼 소급 스캔한다(백필용). "
+                        "생략하면 실제 오늘 날짜.")
     a = ap.parse_args()
-    run(a.market, a.min_rs, a.kr_source)
+    run(a.market, a.min_rs, a.kr_source, as_of=a.date)

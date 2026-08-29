@@ -61,7 +61,9 @@ def update_registry(registry: dict, df: pd.DataFrame, date_str: str) -> dict:
         key = f"{row.get('market', '')}:{ticker}"
         seen_today.add(key)
         if rs >= 90:
-            if key not in registry:
+            # 과거 날짜를 뒤죽박죽 순서로 소급 실행해도 항상 '가장 이른 날짜'가
+            # 최초 진입일로 남도록, 문자열 비교(ISO 형식이라 사전순=날짜순)로 min을 취한다.
+            if key not in registry or date_str < registry[key]:
                 registry[key] = date_str
         else:
             registry.pop(key, None)

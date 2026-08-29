@@ -193,7 +193,8 @@ def _fit(header, table, n_rows: int):
     return [header, table]
 
 
-SESSION_LABEL = {"AM": "장전 (한국 개장 전)", "PM": "장마감 후", "MANUAL": "수동 조회"}
+SESSION_LABEL = {"AM": "장전 (한국 개장 전)", "PM": "장마감 후", "MANUAL": "수동 조회",
+                 "HIST": "소급 조회 (과거 시점)"}
 
 
 def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
@@ -201,7 +202,19 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
     df = pd.read_csv(csv_path, index_col=0, encoding="utf-8-sig")
     # 한국 종목코드는 앞자리 0이 CSV에서 유실되므로 6자리로 복원 (숫자형 코드만)
     df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
-    today = dt.date.today().strftime("%Y년 %m월 %d일")
+
+    # 파일명(예: sepa_scan_20260824.csv)에서 날짜를 뽑는다.
+    # 예전엔 여기서 무조건 dt.date.today()를 썼는데, 소급 스캔한 CSV를 넣으면
+    # 표지에는 그 과거 날짜가 찍히면서 파일명은 '오늘' 날짜로 저장되는
+    # 불일치가 있었다. 파일명도 항상 CSV의 실제 날짜를 따르도록 통일한다.
+    stamp = os.path.basename(csv_path).replace("sepa_scan_", "").replace(".csv", "")
+    try:
+        scan_date = dt.datetime.strptime(stamp, "%Y%m%d").date()
+    except ValueError:
+        scan_date = dt.date.today()
+        stamp = scan_date.strftime("%Y%m%d")
+
+    today = scan_date.strftime("%Y년 %m월 %d일")
     if session:
         today += f" · {SESSION_LABEL.get(session, session)}"
 
@@ -298,7 +311,7 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
 
     if out_path is None:
         suffix = f"_{session}" if session else ""
-        out_path = os.path.join(OUT_DIR, f"SEPA리포트_{dt.date.today():%Y%m%d}{suffix}.pdf")
+        out_path = os.path.join(OUT_DIR, f"SEPA리포트_{stamp}{suffix}.pdf")
     SimpleDocTemplate(out_path, pagesize=A4, topMargin=16 * mm, bottomMargin=14 * mm,
                       leftMargin=12 * mm, rightMargin=12 * mm,
                       title="SEPA 일일 스캔 리포트").build(story)
