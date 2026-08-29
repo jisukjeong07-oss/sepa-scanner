@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -24,6 +24,28 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 매니페스트를 지금 폴더 상태 그대로 다시 만든다.
+      # 이 과정에서 맥에서 올린 NFD(깨진 한글 파일명)가 NFC로 정리되어
+      # 웹에서 열 수 있는 이름이 된다. 스캔은 하지 않으므로 몇 초면 끝난다.
+      - name: Regenerate manifest & normalize filenames
+        run: python make_dashboard.py --regen-manifest
+
+      - name: Commit normalized files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A history/
+          if git diff --cached --quiet; then
+            echo "history 변경 없음 — 커밋 생략"
+          else
+            git commit -m "매니페스트 갱신 및 파일명 정규화"
+            git push
+          fi
 
       - name: Build site from existing history/
         run: |

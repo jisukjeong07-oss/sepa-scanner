@@ -74,11 +74,14 @@ jobs:
 
       - name: Push
         run: |
-          git add history/manifest.json
+          # manifest.json 뿐 아니라 history/ 전체를 담는다.
+          # 매니페스트 재생성 과정에서 NFD(맥에서 만든 깨진 한글 파일명)를
+          # NFC로 바꾸는 작업이 함께 일어나므로, 그 이름 변경도 커밋되어야 한다.
+          git add -A history/
           if git diff --cached --quiet; then
-            echo "manifest 변경 없음 — 커밋 생략"
+            echo "history 변경 없음 — 커밋 생략"
           else
-            git commit -m "매니페스트 갱신 (최종 상태 반영)"
+            git commit -m "매니페스트 갱신 및 파일명 정규화"
           fi
           git push
 
