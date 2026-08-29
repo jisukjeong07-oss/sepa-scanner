@@ -2,9 +2,16 @@ name: SEPA Daily Scan
 
 on:
   schedule:
-    - cron: '30 9 * * 1-5'    # 한국 18:30 (한국 마감 후)
-    - cron: '30 21 * * 1-5'   # 한국 06:30 (미국 마감 후)
+    - cron: '20 22 * * 0-4'   # KST 07:20 (한국 장 시작 전) — UTC 일~목 22:20
+    - cron: '30 7 * * 1-5'    # KST 16:30 (한국 장 마감 후) — UTC 월~금 07:30
   workflow_dispatch:
+    inputs:
+      session:
+        description: '세션 구분 (수동 실행 시 표시될 이름)'
+        required: false
+        default: 'MANUAL'
+        type: choice
+        options: [AM, PM, MANUAL]
 
 permissions:
   contents: write
@@ -27,14 +34,26 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # 어떤 cron이 이 실행을 트리거했는지로 장전/장마감을 자동 판별한다.
+      # 수동 실행(workflow_dispatch)이면 위에서 고른 선택지를 쓴다.
+      - name: Determine session
+        id: session
+        run: |
+          if [ "${{ github.event.schedule }}" = "20 22 * * 0-4" ]; then
+            echo "value=AM" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 7 * * 1-5" ]; then
+            echo "value=PM" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.inputs.session || 'MANUAL' }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-        run: python run_daily.py --market ALL --min-rs 90 --no-open
+        run: python run_daily.py --market ALL --min-rs 90 --no-open --session ${{ steps.session.outputs.value }}
 
       # history/ 는 캐시가 아니라 저장소에 직접 커밋한다.
       # 캐시는 만료·초기화될 수 있어 "날짜별 조회"가 끊기는 원인이 됐었다.
-      # 커밋해두면 저장소 자체가 날짜별 기록이 되어 영구히 남는다.
       - name: Commit history
         run: |
           git config user.name "github-actions[bot]"
@@ -43,7 +62,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "history 변경 없음 — 커밋 생략"
           else
-            git commit -m "SEPA 스캔 결과 $(date -u +%F)"
+            git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
             git pull --rebase origin main
             git push
           fi
@@ -55,6 +74,7 @@ jobs:
           cp output/*.pdf site/ 2>/dev/null || true
           latest=$(ls -t history/SEPA대시보드_*.html | head -1)
           cp "$latest" site/index.html
+          echo "세션: ${{ steps.session.outputs.value }}"
           echo "배포 파일 수: $(ls site/ | wc -l)"
           echo "최신 파일: $latest"
 
