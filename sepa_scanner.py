@@ -545,36 +545,66 @@ def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
     end = today.strftime("%Y%m%d")
     results = []
 
+    kr_error = None
     if market in ("KR", "ALL"):
-        if kr_source == "fdr":
-            # 기본 경로: FinanceDataReader(네이버).
-            # KRX 회원제 전환 이후 pykrx는 로그인이 필요하고 IP 차단 위험이 커서
-            # 매일 돌리는 용도에는 적합하지 않다.
-            from kr_data_fdr import fetch_kr_fdr, fdr_names, kr_market_caps
-            data = fetch_kr_fdr(start, end)
-            r = screen(data, "KR", min_rs)
-            r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
-            # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
-            r["market_cap"] = pd.Series(kr_market_caps(r.index))
-        else:
-            data = fetch_kr(start, end)
-            r = screen(data, "KR", min_rs)
-            r.insert(0, "name", pd.Series(kr_names(r.index[r["PASS"]])))
-            r["market_cap"] = None
-        results.append(r)
+        try:
+            if kr_source == "fdr":
+                # 기본 경로: FinanceDataReader(네이버).
+                # KRX 회원제 전환 이후 pykrx는 로그인이 필요하고 IP 차단 위험이 커서
+                # 매일 돌리는 용도에는 적합하지 않다.
+                from kr_data_fdr import fetch_kr_fdr, fdr_names, kr_market_caps
+                data = fetch_kr_fdr(start, end)
+                r = screen(data, "KR", min_rs)
+                r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
+                # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
+                r["market_cap"] = pd.Series(kr_market_caps(r.index))
+            else:
+                data = fetch_kr(start, end)
+                r = screen(data, "KR", min_rs)
+                r.insert(0, "name", pd.Series(kr_names(r.index[r["PASS"]])))
+                r["market_cap"] = None
+            results.append(r)
+        except Exception as e:
+            # 한국 쪽이 KRX 차단 등으로 실패해도 미국 스캔·리포트는 살려야 한다.
+            # market="ALL" 인데 여기서 그냥 죽으면 미국 결과까지 통째로 날아간다.
+            kr_error = e
+            print(f"\n[경고] 한국 시장 스캔 실패 — 이 시장은 건너뛰고 계속 진행합니다.")
+            print(f"  원인: {str(e)[:200]}")
+            if market == "KR":
+                raise   # 한국만 요청했는데 실패했으면 그건 진짜로 알려야 한다
 
+    us_error = None
     if market in ("US", "ALL"):
-        tickers = us_universe()
-        data = fetch_us(tickers)
-        r = screen(data, "US", min_rs)
-        r.insert(0, "name", pd.Series(us_names(r.index)))
-        # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
-        # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
-        focus = r.index[(r["PASS"]) | (r["conditions_met"] >= 7)]
-        print(f"[US] 시가총액 조회: {len(focus)}종목 (통과+관찰 범위로 축소)")
-        caps = us_market_caps(list(focus))
-        r["market_cap"] = pd.Series({**{t: None for t in r.index}, **caps})
-        results.append(r)
+        try:
+            tickers = us_universe()
+            data = fetch_us(tickers)
+            r = screen(data, "US", min_rs)
+            r.insert(0, "name", pd.Series(us_names(r.index)))
+            # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
+            # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
+            focus = r.index[(r["PASS"]) | (r["conditions_met"] >= 7)]
+            print(f"[US] 시가총액 조회: {len(focus)}종목 (통과+관찰 범위로 축소)")
+            caps = us_market_caps(list(focus))
+            r["market_cap"] = pd.Series({**{t: None for t in r.index}, **caps})
+            results.append(r)
+        except Exception as e:
+            us_error = e
+            print(f"\n[경고] 미국 시장 스캔 실패 — 이 시장은 건너뛰고 계속 진행합니다.")
+            print(f"  원인: {str(e)[:200]}")
+            if market == "US":
+                raise
+
+    if not results:
+        raise RuntimeError(
+            "모든 시장 스캔이 실패했습니다. 저장할 데이터가 없습니다.\n"
+            f"  한국: {kr_error}\n  미국: {us_error}"
+        )
+    if kr_error is not None:
+        print(f"\n※ 이번 실행은 한국 데이터 없이 미국만 저장됩니다 (한국 스캔 실패).")
+    if us_error is not None:
+        print(f"\n※ 이번 실행은 미국 데이터 없이 한국만 저장됩니다 (미국 스캔 실패).")
+
+
 
     out = pd.concat(results)
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{end}.csv")
