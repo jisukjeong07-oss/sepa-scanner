@@ -63,9 +63,24 @@ jobs:
             echo "history 변경 없음 — 커밋 생략"
           else
             git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
-            git pull --rebase origin main
-            git push
           fi
+          # 스캔이 오래 걸리는 동안(한국 전종목이면 수십 분) 다른 곳(로컬 등)에서
+          # history/ 에 파일을 올렸을 수 있다. 그걸 받아온 뒤에 매니페스트를
+          # 다시 만들어야, 이번 실행이 시작된 시점엔 없었던 파일까지 반영된다.
+          git pull --rebase origin main
+
+      - name: Regenerate manifest (최종 상태 기준)
+        run: python make_dashboard.py --regen-manifest
+
+      - name: Push
+        run: |
+          git add history/manifest.json
+          if git diff --cached --quiet; then
+            echo "manifest 변경 없음 — 커밋 생략"
+          else
+            git commit -m "매니페스트 갱신 (최종 상태 반영)"
+          fi
+          git push
 
       - name: Build site
         run: |
