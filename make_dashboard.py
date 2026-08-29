@@ -113,8 +113,14 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
      padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{opacity:.88}
-select#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
-  font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);cursor:pointer}
+input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
+  font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);
+  cursor:pointer;color-scheme:light}
+.day-wrap{position:relative;display:inline-flex;flex-direction:column}
+.day-msg{position:absolute;top:calc(100% + 5px);right:0;white-space:nowrap;
+  font-size:11.5px;color:#a13c3c;background:#fff6f6;border:1px solid #f0c9c9;
+  border-radius:6px;padding:5px 9px;display:none;z-index:5}
+.day-msg.show{display:block}
 
 /* 인쇄(=PDF 저장) 시 화면 조작부는 감추고 표만 남긴다 */
 @media print{
@@ -259,7 +265,10 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       </div>
     </div>
     <div class="hact">
-      <select id="day" aria-label="날짜 선택"></select>
+      <div class="day-wrap">
+        <input type="date" id="day" aria-label="날짜 선택">
+        <div class="day-msg" id="dayMsg"></div>
+      </div>
       <button id="pdf" class="btn">PDF로 저장</button>
     </div>
   </div>
@@ -443,17 +452,48 @@ document.getElementById("q").addEventListener("input",e=>{q=e.target.value;rende
 // PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
 document.getElementById("pdf").addEventListener("click",()=>window.print());
 
-// 날짜 선택: 같은 폴더의 다른 날짜 대시보드로 이동
+// 날짜 선택: 실제 데이터가 있는 날짜만 이동, 없으면 안내만 하고 되돌림
 (function(){
-  const sel=document.getElementById("day");
-  if(!DAYS.length){ sel.style.display="none"; return; }
+  const input = document.getElementById("day");
+  const msg = document.getElementById("dayMsg");
+  if(!DAYS.length){ input.parentElement.style.display="none"; return; }
+
+  // key(YYYYMMDD) -> {file,label} 맵 구성
+  const byKey = {};
+  let minKey = DAYS[0].key, maxKey = DAYS[0].key, curKey = null;
   for(const d of DAYS){
-    const o=document.createElement("option");
-    o.value=d.file; o.textContent=d.label;
-    if(d.file===CURRENT) o.selected=true;
-    sel.appendChild(o);
+    byKey[d.key] = d;
+    if(d.key < minKey) minKey = d.key;
+    if(d.key > maxKey) maxKey = d.key;
+    if(d.file === CURRENT) curKey = d.key;
   }
-  sel.addEventListener("change",e=>{ location.href=e.target.value; });
+  const toISO = k => `${k.slice(0,4)}-${k.slice(4,6)}-${k.slice(6,8)}`;
+  const toKey = iso => iso.replaceAll("-", "");
+
+  input.value = toISO(curKey || maxKey);
+  input.min = toISO(minKey);
+  input.max = toISO(maxKey);
+
+  let hideTimer = null;
+  function flash(text){
+    msg.textContent = text;
+    msg.classList.add("show");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(()=>msg.classList.remove("show"), 3200);
+  }
+
+  input.addEventListener("change", e=>{
+    const key = toKey(e.target.value);
+    const hit = byKey[key];
+    if(hit){
+      location.href = hit.file;
+    } else {
+      // 데이터 없는 날짜(휴장일·미수집일) — 이동하지 않고 안내, 입력값은 되돌린다
+      flash("해당 날짜는 데이터가 없습니다. 사용 가능 기간: "
+            + toISO(minKey) + " ~ " + toISO(maxKey));
+      input.value = toISO(curKey || maxKey);
+    }
+  });
 })();
 
 // ── 매매전략 패널 ────────────────────────────────────────
