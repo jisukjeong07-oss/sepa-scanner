@@ -1,0 +1,42 @@
+name: SEPA Deploy (배포만, 재스캔 없음)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'history/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build site from existing history/
+        run: |
+          mkdir -p site
+          cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
+          latest=$(ls -t history/SEPA대시보드_*.html | head -1)
+          cp "$latest" site/index.html
+          echo "배포 파일 수: $(ls site/ | wc -l)"
+          echo "최신 파일: $latest"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
