@@ -90,22 +90,49 @@ def kr_listing() -> pd.DataFrame:
         if code_col is None:
             raise RuntimeError(f"종목코드 컬럼을 찾지 못했습니다: {list(df.columns)[:10]}")
 
+        cap_col = next((c for c in ("Marcap", "MarketCap", "Market Cap", "시가총액")
+                       if c in df.columns), None)
+
         out = pd.DataFrame({
             "code": df[code_col].astype(str).str.zfill(6),
             "name": df[name_col].astype(str) if name_col else df[code_col].astype(str),
             "market": mkt,
         })
+        if cap_col:
+            out["market_cap"] = pd.to_numeric(df[cap_col], errors="coerce").values
+        else:
+            out["market_cap"] = pd.NA
+
         # 우선주·스팩·리츠 등 제외 (종목코드 끝자리가 0이 아니면 대개 우선주)
         out = out[out["code"].str.match(r"^\d{6}$")]
         out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
         frames.append(out)
-        print(f"[FDR] {mkt} {len(out):,}종목")
+        if cap_col:
+            print(f"[FDR] {mkt} {len(out):,}종목 (시가총액 컬럼 '{cap_col}' 확인됨)")
+        else:
+            print(f"[FDR] {mkt} {len(out):,}종목 "
+                 f"(시가총액 컬럼을 찾지 못함 — 사용 가능한 컬럼: {list(df.columns)[:10]})")
 
     listing = (pd.concat(frames, ignore_index=True)
                  .drop_duplicates("code")
                  .set_index("code"))
     _write(listing, cache)
     return listing
+
+
+def kr_market_caps(tickers) -> dict:
+    """종목코드 -> 시가총액(원). kr_listing() 캐시에 컬럼이 없으면 전부 None."""
+    try:
+        listing = kr_listing()
+    except Exception:
+        return {t: None for t in tickers}
+    if "market_cap" not in listing.columns:
+        return {t: None for t in tickers}
+    out = {}
+    for t in tickers:
+        v = listing["market_cap"].get(t) if t in listing.index else None
+        out[t] = None if pd.isna(v) else float(v)
+    return out
 
 
 # ═════════════════════════════════════════════════════════════

@@ -193,11 +193,17 @@ def _fit(header, table, n_rows: int):
     return [header, table]
 
 
-def build(csv_path: str, out_path: str = None, stage2_csv: str = None) -> str:
+SESSION_LABEL = {"AM": "장전 (한국 개장 전)", "PM": "장마감 후", "MANUAL": "수동 조회"}
+
+
+def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
+         session: str = None) -> str:
     df = pd.read_csv(csv_path, index_col=0, encoding="utf-8-sig")
     # 한국 종목코드는 앞자리 0이 CSV에서 유실되므로 6자리로 복원 (숫자형 코드만)
     df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
     today = dt.date.today().strftime("%Y년 %m월 %d일")
+    if session:
+        today += f" · {SESSION_LABEL.get(session, session)}"
 
     passed = df[df["PASS"] == True].sort_values("RS", ascending=False)
     near = df[(df["PASS"] != True) & (df["conditions_met"] >= 7)].sort_values("RS", ascending=False)
@@ -291,7 +297,8 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None) -> str:
         "투자 참고 자료이며 투자 권유가 아닙니다.", S["small"]))
 
     if out_path is None:
-        out_path = os.path.join(OUT_DIR, f"SEPA리포트_{dt.date.today():%Y%m%d}.pdf")
+        suffix = f"_{session}" if session else ""
+        out_path = os.path.join(OUT_DIR, f"SEPA리포트_{dt.date.today():%Y%m%d}{suffix}.pdf")
     SimpleDocTemplate(out_path, pagesize=A4, topMargin=16 * mm, bottomMargin=14 * mm,
                       leftMargin=12 * mm, rightMargin=12 * mm,
                       title="SEPA 일일 스캔 리포트").build(story)

@@ -50,6 +50,14 @@ def _rows(df: pd.DataFrame) -> list:
         except (TypeError, ValueError):
             turnover = None
 
+        cap = r.get("market_cap")
+        try:
+            cap = float(cap)
+            if pd.isna(cap):
+                cap = None
+        except (TypeError, ValueError):
+            cap = None
+
         out.append({
             "ticker": str(idx),
             "name": str(r.get("name", idx)),
@@ -61,6 +69,7 @@ def _rows(df: pd.DataFrame) -> list:
             "ma50": _f(r.get("vs_MA50_%")),
             "slope": _f(r.get("MA200_slope_%")),
             "turnover": turnover,
+            "cap": cap,
             "met": int(r.get("conditions_met", 0) or 0),
             "pass": bool(r.get("PASS", False)),
             "fails": fails,
@@ -113,6 +122,11 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
      padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{opacity:.88}
+.btn-outline{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+     border-radius:7px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;
+     font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
+.btn-outline:hover{background:#F2F5F8;color:var(--ink)}
+#sessSeg button:disabled{opacity:.35;cursor:not-allowed}
 input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);
   cursor:pointer;color-scheme:light}
@@ -269,6 +283,11 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
         <input type="date" id="day" aria-label="날짜 선택">
         <div class="day-msg" id="dayMsg"></div>
       </div>
+      <div class="seg" id="sessSeg" role="group" aria-label="세션">
+        <button data-sess="AM" aria-pressed="false">장전</button>
+        <button data-sess="PM" aria-pressed="false">장마감</button>
+      </div>
+      <a id="manualRun" class="btn btn-outline" href="__ACTIONS_URL__" target="_blank" rel="noopener">수동 조회</a>
       <button id="pdf" class="btn">PDF로 저장</button>
     </div>
   </div>
@@ -280,8 +299,8 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="k">8조건 통과</div><div class="v hl num">__NPASS__</div></div>
-  <div class="stat"><div class="k">7조건 관찰</div><div class="v num">__NNEAR__</div></div>
+  <div class="stat"><div class="k">8조건 통과</div><div class="v hl num" id="statPass">0</div></div>
+  <div class="stat"><div class="k">7조건 관찰</div><div class="v num" id="statNear">0</div></div>
   <div class="stat"><div class="k">화면 표시</div><div class="v num" id="shown">0</div></div>
 </div>
 
@@ -299,9 +318,8 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <button data-view="all" aria-pressed="false">전체</button>
   </div>
   <div class="seg" role="group" aria-label="시장">
-    <button data-mkt="ALL" aria-pressed="true">전 시장</button>
+    <button data-mkt="US" aria-pressed="true">미국</button>
     <button data-mkt="KR" aria-pressed="false">한국</button>
-    <button data-mkt="US" aria-pressed="false">미국</button>
   </div>
   <label class="rs">RS <input type="range" id="rs" min="0" max="99" value="0">
     <span class="num" id="rsv">0</span> 이상</label>
@@ -323,7 +341,7 @@ const DATA = __DATA__;
 const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "__CURRENT__";
 const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
-let view="pass", mkt="ALL", minRS=0, q="", sortKey="rs", sortDir=-1, open=null;
+let view="pass", mkt="US", minRS=0, q="", sortKey="cap", sortDir=-1, open=null;
 
 const COLS=[
   ["ticker","종목",""],
@@ -334,13 +352,25 @@ const COLS=[
   ["ma50","50일선%","hide-s"],
   ["slope","200일선 기울기%","hide-s"],
   ["turnover","거래대금","hide-s"],
+  ["cap","cap-caption","hide-s"],   // 라벨은 시장에 따라 렌더 시점에 동적으로 붙인다
 ];
+
+function capUnitLabel(m){ return m==="US" ? "시가총액(1B)" : "시가총액(1천억원)"; }
 
 const fmtMoney=(v,m)=>{
   if(v==null) return "–";
   return m==="KR" ? (v/1e8).toLocaleString(undefined,{maximumFractionDigits:0})+"억"
                   : "$"+(v/1e6).toLocaleString(undefined,{maximumFractionDigits:0})+"M";
 };
+function fmtCap(v, m){
+  if(v==null || isNaN(v)) return "–";
+  if(m==="US"){
+    const b = v/1e9;
+    return v>=1e12 ? Math.round(b).toLocaleString() : b.toFixed(2);
+  }
+  const u = v/1e11;
+  return v>=1e11 ? Math.round(u).toLocaleString() : u.toFixed(2);
+}
 const sign=v=>v==null?"":(v>0?"pos":(v<0?"neg":""));
 const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2});
 
@@ -354,11 +384,18 @@ function rail(v){
     <div class="dot${out}" style="left:${p}%"></div></div>`;
 }
 
+// 시장별로 통계(통과/관찰 수)를 다시 센다 — 전체 DATA가 아니라 선택된 시장 안에서만
+function updateStats(){
+  const inMkt = DATA.filter(d=>d.market===mkt);
+  document.getElementById("statPass").textContent = inMkt.filter(d=>d.pass).length;
+  document.getElementById("statNear").textContent = inMkt.filter(d=>!d.pass && d.met>=7).length;
+}
+
 function filtered(){
   return DATA.filter(d=>{
     if(view==="pass" && !d.pass) return false;
     if(view==="near" && (d.pass || d.met<7)) return false;
-    if(mkt!=="ALL" && d.market!==mkt) return false;
+    if(d.market!==mkt) return false;
     if(d.rs!=null && d.rs<minRS) return false;
     if(q){
       const s=(d.ticker+" "+d.name).toLowerCase();
@@ -375,6 +412,7 @@ function filtered(){
 }
 
 function render(){
+  updateStats();
   const rows=filtered();
   document.getElementById("shown").textContent=rows.length;
   const host=document.getElementById("host");
@@ -387,7 +425,8 @@ function render(){
   let h='<table><thead><tr>';
   for(const [k,label,cls] of COLS){
     const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
-    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${label}</th>`;
+    const text = k==="cap" ? capUnitLabel(mkt) : label;
+    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${text}</th>`;
   }
   h+='</tr></thead><tbody>';
 
@@ -403,7 +442,8 @@ function render(){
       <td class="num hide-s ${sign(d.low)}">${num(d.low)}</td>
       <td class="num hide-s ${sign(d.ma50)}">${num(d.ma50)}</td>
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
-      <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td></tr>`;
+      <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td>
+      <td class="num hide-s">${fmtCap(d.cap,d.market)}</td></tr>`;
 
     if(open===d.ticker){
       const chips = d.fails.length
@@ -429,7 +469,8 @@ document.addEventListener("click",e=>{
   const th=e.target.closest("th[data-k]");
   if(th){
     const k=th.dataset.k;
-    if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=-1;}
+    // 새 컬럼을 클릭하면 오름차순부터 시작, 같은 컬럼을 다시 누르면 방향 반전
+    if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=1;}
     render(); return;
   }
   const tr=e.target.closest("tbody tr[data-t]");
@@ -452,25 +493,32 @@ document.getElementById("q").addEventListener("input",e=>{q=e.target.value;rende
 // PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
 document.getElementById("pdf").addEventListener("click",()=>window.print());
 
-// 날짜 선택: 실제 데이터가 있는 날짜만 이동, 없으면 안내만 하고 되돌림
+// 날짜·세션 선택: 실제 데이터가 있는 조합만 이동, 없으면 안내만 하고 되돌림
 (function(){
   const input = document.getElementById("day");
   const msg = document.getElementById("dayMsg");
-  if(!DAYS.length){ input.parentElement.style.display="none"; return; }
+  const seg = document.getElementById("sessSeg");
+  if(!DAYS.length){ input.parentElement.style.display="none"; seg.style.display="none"; return; }
 
-  // key(YYYYMMDD) -> {file,label} 맵 구성
-  const byKey = {};
-  let minKey = DAYS[0].key, maxKey = DAYS[0].key, curKey = null;
+  // key(YYYYMMDD) + session -> file 맵
+  const byKeySess = {};      // "20260828_PM" -> file
+  const sessionsByKey = {};  // "20260828" -> Set(["AM","PM"])
+  let minKey = DAYS[0].key, maxKey = DAYS[0].key;
+  let curKey = null, curSess = "PM";
+
   for(const d of DAYS){
-    byKey[d.key] = d;
+    byKeySess[`${d.key}_${d.session}`] = d.file;
+    (sessionsByKey[d.key] ??= new Set()).add(d.session);
     if(d.key < minKey) minKey = d.key;
     if(d.key > maxKey) maxKey = d.key;
-    if(d.file === CURRENT) curKey = d.key;
+    if(d.file === CURRENT){ curKey = d.key; curSess = d.session; }
   }
+  if(!curKey) curKey = maxKey;
+
   const toISO = k => `${k.slice(0,4)}-${k.slice(4,6)}-${k.slice(6,8)}`;
   const toKey = iso => iso.replaceAll("-", "");
 
-  input.value = toISO(curKey || maxKey);
+  input.value = toISO(curKey);
   input.min = toISO(minKey);
   input.max = toISO(maxKey);
 
@@ -479,20 +527,45 @@ document.getElementById("pdf").addEventListener("click",()=>window.print());
     msg.textContent = text;
     msg.classList.add("show");
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(()=>msg.classList.remove("show"), 3200);
+    hideTimer = setTimeout(()=>msg.classList.remove("show"), 3400);
+  }
+
+  function refreshSegState(key){
+    const has = sessionsByKey[key] || new Set();
+    for(const b of seg.querySelectorAll("button")){
+      const s = b.dataset.sess;
+      const available = has.has(s);
+      b.disabled = !available;
+      b.setAttribute("aria-pressed", String(s === curSess && available));
+      b.title = available ? "" : "이 날짜엔 데이터가 없습니다";
+    }
+  }
+  refreshSegState(curKey);
+
+  function goto(key, sess){
+    const file = byKeySess[`${key}_${sess}`];
+    if(file){ location.href = file; return true; }
+    return false;
   }
 
   input.addEventListener("change", e=>{
     const key = toKey(e.target.value);
-    const hit = byKey[key];
-    if(hit){
-      location.href = hit.file;
-    } else {
-      // 데이터 없는 날짜(휴장일·미수집일) — 이동하지 않고 안내, 입력값은 되돌린다
-      flash("해당 날짜는 데이터가 없습니다. 사용 가능 기간: "
-            + toISO(minKey) + " ~ " + toISO(maxKey));
-      input.value = toISO(curKey || maxKey);
+    const has = sessionsByKey[key];
+    if(!has || has.size===0){
+      flash("해당 날짜는 데이터가 없습니다. 사용 가능 기간: " + toISO(minKey) + " ~ " + toISO(maxKey));
+      input.value = toISO(curKey);
+      return;
     }
+    // 같은 세션(장전/장마감)이 그 날짜에도 있으면 유지, 없으면 있는 쪽으로
+    if(goto(key, curSess)) return;
+    const fallback = has.has("PM") ? "PM" : (has.has("AM") ? "AM" : [...has][0]);
+    goto(key, fallback);
+  });
+
+  seg.addEventListener("click", e=>{
+    const btn = e.target.closest("button[data-sess]");
+    if(!btn || btn.disabled) return;
+    goto(curKey, btn.dataset.sess);
   });
 })();
 
@@ -556,47 +629,69 @@ render();
 """
 
 
+def _actions_url() -> str:
+    """
+    '수동 조회' 버튼이 이동할 GitHub Actions 실행 화면 주소.
+    GITHUB_REPOSITORY 는 Actions 실행 중 자동으로 채워지는 환경변수(owner/repo)다.
+    로컬(맥)에서 만들 때는 이 값이 없어 버튼이 일반 안내 링크로 대체된다.
+    """
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if repo:
+        return f"https://github.com/{repo}/actions/workflows/daily.yml"
+    return "https://github.com"
+
+
 def _day_list(out_dir: str, current_file: str) -> list:
     """
-    같은 폴더에 있는 대시보드 파일들을 찾아 날짜 목록을 만든다.
-    과거 결과를 다시 열어볼 수 있게 하기 위함이다.
+    같은 폴더에 있는 대시보드 파일들을 찾아 날짜+세션 목록을 만든다.
+    파일명 규칙: SEPA대시보드_YYYYMMDD_SESSION.html (SESSION: AM/PM/MANUAL)
+    세션 접미사가 없는 예전 파일은 MANUAL로 취급해 하위호환한다.
     """
     import glob
     import re
 
     days = []
-    for f in glob.glob(os.path.join(out_dir, "SEPA대시보드_*.html")):
-        base = os.path.basename(f)
-        m = re.search(r"(\d{8})", base)
+
+    def _entry(fname):
+        m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL))?\.html$", fname)
         if not m:
-            continue
+            return None
+        key, session = m.group(1), (m.group(2) or "MANUAL")
         try:
-            label = dt.datetime.strptime(m.group(1), "%Y%m%d").strftime("%Y-%m-%d (%a)")
+            base_label = dt.datetime.strptime(key, "%Y%m%d").strftime("%Y-%m-%d (%a)")
         except ValueError:
-            label = m.group(1)
-        days.append({"file": base, "label": label, "key": m.group(1)})
+            base_label = key
+        sess_label = {"AM": "장전", "PM": "장마감", "MANUAL": "수동"}[session]
+        return {"file": fname, "key": key, "session": session,
+               "label": f"{base_label} · {sess_label}"}
 
-    # 현재 생성 중인 파일이 아직 디스크에 없을 수 있으므로 확실히 포함시킨다
+    for f in glob.glob(os.path.join(out_dir, "SEPA대시보드_*.html")):
+        e = _entry(os.path.basename(f))
+        if e:
+            days.append(e)
+
     if not any(d["file"] == current_file for d in days):
-        m = re.search(r"(\d{8})", current_file)
-        if m:
-            try:
-                label = dt.datetime.strptime(m.group(1), "%Y%m%d").strftime("%Y-%m-%d (%a)")
-            except ValueError:
-                label = m.group(1)
-            days.append({"file": current_file, "label": label, "key": m.group(1)})
+        e = _entry(current_file)
+        if e:
+            days.append(e)
 
-    days.sort(key=lambda d: d["key"], reverse=True)   # 최신이 위로
+    # 최신이 위로: 날짜 내림차순, 같은 날짜면 장마감(PM)이 장전(AM)보다 위
+    rank = {"PM": 2, "MANUAL": 1, "AM": 0}
+    days.sort(key=lambda d: (d["key"], rank.get(d["session"], 0)), reverse=True)
     return days
 
 
 def build(csv_path: str, out_path: str = None, open_browser: bool = True,
-         hist_dir: str = None, generate_strategy: bool = True) -> str:
+         hist_dir: str = None, generate_strategy: bool = True,
+         session: str = "MANUAL") -> str:
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
             f"스캔 결과 파일이 없습니다: {csv_path}\n"
             f"  먼저 python3 sepa_scanner.py --market US 를 실행하세요."
         )
+    session = (session or "MANUAL").upper()
+    if session not in ("AM", "PM", "MANUAL"):
+        session = "MANUAL"
 
     hist_dir = hist_dir or HIST_DIR
     os.makedirs(hist_dir, exist_ok=True)
@@ -611,7 +706,8 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         scan_date = dt.date.today()
         stamp = scan_date.strftime("%Y%m%d")
     date_str = scan_date.strftime("%Y-%m-%d")
-    shown_date = scan_date.strftime("%Y년 %m월 %d일")
+    sess_kr = {"AM": "장전", "PM": "장마감", "MANUAL": "수동 조회"}[session]
+    shown_date = scan_date.strftime("%Y년 %m월 %d일") + f" · {sess_kr}"
 
     # ── 휴장일이면 해당 시장 데이터를 화면에서 숨긴다 ──────────
     kr_stat = mc.kr_status(date_str)
@@ -621,10 +717,24 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     if not us_stat["open"] and "market" in df.columns:
         df = df[df["market"] != "US"]
 
+    # ── 초저가 종목 제외 (미국 $1 미만, 한국 1,000원 미만) ──────
+    # 참고: sepa_scanner.py의 스캔 단계에도 더 엄격한 하한(MIN_PRICE_US=10,
+    # MIN_PRICE_KR=2000)이 이미 걸려 있어 보통은 이 필터가 새로 걸러내는
+    # 종목은 없다. 나중에 그 값을 낮추더라도 결과 화면만큼은 이 기준
+    # 아래로는 절대 보이지 않도록 이중으로 막아두는 것이다.
+    if "price" in df.columns and "market" in df.columns:
+        price = pd.to_numeric(df["price"], errors="coerce")
+        too_cheap = ((df["market"] == "US") & (price < 1)) | \
+                   ((df["market"] == "KR") & (price < 1000))
+        df = df[~too_cheap]
+
     n_pass = int(df["PASS"].sum()) if "PASS" in df.columns else 0
     n_near = int(((df.get("PASS") != True) & (df.get("conditions_met", 0) >= 7)).sum())
 
     # ── 매매전략 생성 (RS90 레지스트리는 history/ 에 누적) ──────
+    # 주의: 장전(AM) 스캔의 한국 데이터는 개장 전이라 사실상 전날 종가와 같다.
+    # 그날 새로 확정되는 것은 미국 종가 쪽이다. 레지스트리는 날짜 단위로만
+    # 갱신하므로, 같은 날 AM/PM 두 번 갱신되어도 최초 진입일이 덮어써지지 않는다.
     strategy_json = "null"
     if generate_strategy and "PASS" in df.columns:
         try:
@@ -632,6 +742,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             registry = strat.update_registry(registry, df, date_str)
             strat.save_registry(hist_dir, registry)
             result = strat.build_strategy(df, date_str, registry)
+            result["session"]["run_session"] = session
             strategy_json = json.dumps(result, ensure_ascii=False)
         except Exception as e:
             print(f"[경고] 매매전략 생성 실패(대시보드는 정상 생성됨): {e}")
@@ -645,15 +756,14 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__TOTAL__", f"{len(df):,}")
             .replace("__KRN__", f"{int((df.get('market') == 'KR').sum()):,}")
             .replace("__USN__", f"{int((df.get('market') == 'US').sum()):,}")
-            .replace("__NPASS__", str(n_pass))
-            .replace("__NNEAR__", str(n_near))
             .replace("__KR_DOT__", _dot(kr_stat["open"]))
             .replace("__US_DOT__", _dot(us_stat["open"]))
             .replace("__KR_LABEL__", kr_stat["label"])
-            .replace("__US_LABEL__", us_stat["label"]))
+            .replace("__US_LABEL__", us_stat["label"])
+            .replace("__ACTIONS_URL__", _actions_url()))
 
     # 최종 파일은 history/ (영구 보관) 와 output/ (당일 산출물) 양쪽에 둔다.
-    fname = f"SEPA대시보드_{stamp}.html"
+    fname = f"SEPA대시보드_{stamp}_{session}.html"
     hist_path = os.path.join(hist_dir, fname)
     out_path = out_path or os.path.join(OUT_DIR, fname)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -681,6 +791,7 @@ if __name__ == "__main__":
     ap.add_argument("--csv", default=None)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--hist-dir", default=None)
+    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL"])
     a = ap.parse_args()
     csv_path = a.csv or os.path.join(OUT_DIR, f"sepa_scan_{dt.date.today():%Y%m%d}.csv")
-    build(csv_path, open_browser=not a.no_open, hist_dir=a.hist_dir)
+    build(csv_path, open_browser=not a.no_open, hist_dir=a.hist_dir, session=a.session)

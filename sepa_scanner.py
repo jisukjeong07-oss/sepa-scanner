@@ -517,6 +517,28 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS) -> pd.DataFrame:
 # 4. 실행
 # ═════════════════════════════════════════════════════════════
 
+def us_market_caps(tickers, sleep_sec: float = 0.25) -> dict:
+    """
+    종목코드 -> 시가총액(달러). yfinance는 대량 다운로드에 시가총액을 안 주므로
+    종목별로 따로 물어봐야 한다. 그래서 이 함수는 호출한 쪽에서 스스로
+    범위를 좁혀(예: 통과+관찰 종목만) 넘기는 것을 전제로 한다 — 미국 500종목
+    전체에 매번 쓰면 몇 분씩 걸리고 차단 위험도 커진다.
+    """
+    import yfinance as yf
+    out = {}
+    for i, t in enumerate(tickers):
+        try:
+            fi = yf.Ticker(t).fast_info
+            cap = fi.get("market_cap") or fi.get("marketCap")
+            out[t] = float(cap) if cap else None
+        except Exception as e:
+            out[t] = None
+            if i < 3:
+                print(f"  [warn] {t} 시가총액 조회 실패: {str(e)[:60]}")
+        time.sleep(sleep_sec)
+    return out
+
+
 def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
     today = dt.date.today()
     start = (today - dt.timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
@@ -528,14 +550,17 @@ def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
             # 기본 경로: FinanceDataReader(네이버).
             # KRX 회원제 전환 이후 pykrx는 로그인이 필요하고 IP 차단 위험이 커서
             # 매일 돌리는 용도에는 적합하지 않다.
-            from kr_data_fdr import fetch_kr_fdr, fdr_names
+            from kr_data_fdr import fetch_kr_fdr, fdr_names, kr_market_caps
             data = fetch_kr_fdr(start, end)
             r = screen(data, "KR", min_rs)
             r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
+            # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
+            r["market_cap"] = pd.Series(kr_market_caps(r.index))
         else:
             data = fetch_kr(start, end)
             r = screen(data, "KR", min_rs)
             r.insert(0, "name", pd.Series(kr_names(r.index[r["PASS"]])))
+            r["market_cap"] = None
         results.append(r)
 
     if market in ("US", "ALL"):
@@ -543,6 +568,12 @@ def run(market: str, min_rs: int, kr_source: str = "fdr") -> pd.DataFrame:
         data = fetch_us(tickers)
         r = screen(data, "US", min_rs)
         r.insert(0, "name", pd.Series(us_names(r.index)))
+        # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
+        # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
+        focus = r.index[(r["PASS"]) | (r["conditions_met"] >= 7)]
+        print(f"[US] 시가총액 조회: {len(focus)}종목 (통과+관찰 범위로 축소)")
+        caps = us_market_caps(list(focus))
+        r["market_cap"] = pd.Series({**{t: None for t in r.index}, **caps})
         results.append(r)
 
     out = pd.concat(results)

@@ -3,13 +3,15 @@
 매일 실행용: 스캔 → CSV → PDF 리포트 → HTML 대시보드
 
 사용법:
-  python3 run_daily.py                      # 한국+미국 전체
-  python3 run_daily.py --market US          # 미국만
-  python3 run_daily.py --market KR --min-rs 80
-  python3 run_daily.py --no-open            # 브라우저 자동 실행 안 함
+  python3 run_daily.py                          # 한국+미국 전체 (세션: 수동조회)
+  python3 run_daily.py --market US               # 미국만
+  python3 run_daily.py --session AM               # 장전 스캔으로 표시
+  python3 run_daily.py --session PM               # 장마감 스캔으로 표시
+  python3 run_daily.py --no-open                  # 브라우저 자동 실행 안 함
 
-cron 등록 예시 (평일 18:30):
-  30 18 * * 1-5 cd /파일이있는폴더 && /usr/bin/python3 run_daily.py --no-open >> run.log 2>&1
+하루 두 번(장전/장마감) 자동 실행은 daily.yml 의 cron 스케줄을 사용한다.
+로컬 cron 등록 예시(평일 16:30):
+  30 16 * * 1-5 cd /파일이있는폴더 && /usr/bin/python3 run_daily.py --session PM --no-open >> run.log 2>&1
 """
 
 import os
@@ -45,10 +47,15 @@ import make_report
 import make_dashboard
 
 
-def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True):
+def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True, session="MANUAL"):
+    session = (session or "MANUAL").upper()
     stamp = dt.date.today().strftime("%Y%m%d")
-    print(f"\n===== SEPA 일일 스캔 {dt.datetime.now():%Y-%m-%d %H:%M} =====")
+    print(f"\n===== SEPA 일일 스캔 {dt.datetime.now():%Y-%m-%d %H:%M} "
+          f"[{session}] =====")
     print(f"시장: {market} / RS 기준: {min_rs} 이상")
+    if session == "AM":
+        print("[안내] 장전 스캔입니다. 한국 종목은 개장 전이라 사실상 전날 종가와 "
+              "같고, 새로 확정되는 것은 간밤 미국 종가입니다.")
 
     # 1단계: 트렌드템플릿 스캔
     run(market, min_rs, kr_source)
@@ -68,12 +75,12 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True):
     elif market in ("KR", "ALL"):
         print("[안내] DART_API_KEY 미설정 — 1단계 결과만 사용합니다.")
 
-    # 산출물
-    pdf_path = make_report.build(csv_path, stage2_csv=stage2_path)
+    # 산출물 (파일명에 세션이 붙어 장전/장마감 기록이 각각 남는다)
+    pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session)
     html_path = make_dashboard.build(csv_path, open_browser=open_browser,
-                                     hist_dir=make_dashboard.HIST_DIR)
+                                     hist_dir=make_dashboard.HIST_DIR, session=session)
 
-    print(f"\n완료")
+    print(f"\n완료 [{session}]")
     print(f"  PDF        : {pdf_path}")
     print(f"  대시보드   : {html_path}")
     print(f"  원본 CSV   : {csv_path}")
@@ -86,9 +93,11 @@ if __name__ == "__main__":
     ap.add_argument("--min-rs", type=int, default=70)
     ap.add_argument("--kr-source", default="fdr", choices=["fdr", "pykrx"])
     ap.add_argument("--no-open", action="store_true", help="브라우저 자동 실행 안 함")
+    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL"],
+                    help="AM=장전, PM=장마감, MANUAL=수동 조회 (기본값)")
     a = ap.parse_args()
     try:
-        main(a.market, a.min_rs, a.kr_source, open_browser=not a.no_open)
+        main(a.market, a.min_rs, a.kr_source, open_browser=not a.no_open, session=a.session)
     except Exception:
         print("\n실패:")
         traceback.print_exc()
