@@ -737,11 +737,18 @@ def _day_list(out_dir: str, current_file: str) -> list:
     같은 폴더에 있는 대시보드 파일들을 찾아 날짜+세션 목록을 만든다.
     파일명 규칙: SEPA대시보드_YYYYMMDD_SESSION.html (SESSION: AM/PM/MANUAL/HIST)
     세션 접미사가 없는 예전 파일은 MANUAL로 취급해 하위호환한다.
+
+    한글 파일명 정규화(NFC/NFD) 문제 대응:
+    맥에서 만든 파일은 자모 분리형(NFD)으로 저장되는데, 이건 리눅스가 쓰는
+    결합형(NFC)과 바이트가 달라 'SEPA대시보드_*' 패턴으로 찾으면 안 걸린다.
+    그래서 (1) 모든 .html을 훑고 (2) 이름을 NFC로 정규화해 비교하며
+    (3) 실제 파일명이 NFD면 NFC로 바꿔놓아, 다음부터는 웹에서도 열리게 한다.
     """
     import glob
     import re
 
     days = []
+    seen = set()
 
     def _entry(fname):
         m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL|HIST))?\.html$", fname)
@@ -756,13 +763,34 @@ def _day_list(out_dir: str, current_file: str) -> list:
         return {"file": fname, "key": key, "session": session,
                "label": f"{base_label} · {sess_label}"}
 
-    for f in glob.glob(os.path.join(out_dir, "SEPA대시보드_*.html")):
-        e = _entry(os.path.basename(f))
+    for path in glob.glob(os.path.join(out_dir, "*.html")):
+        raw = os.path.basename(path)
+        nfc = unicodedata.normalize("NFC", raw)
+        if not nfc.startswith("SEPA대시보드_"):
+            continue
+
+        # 실제 파일명이 NFD면 NFC로 바꿔 저장한다(웹에서 열리도록).
+        if raw != nfc:
+            target = os.path.join(out_dir, nfc)
+            try:
+                if os.path.exists(target):
+                    os.remove(path)          # 이미 올바른 이름이 있으면 깨진 쪽을 버린다
+                else:
+                    os.rename(path, target)
+                    print(f"  [정규화] 파일명 수정: {raw} → {nfc}")
+            except OSError as e:
+                print(f"  [경고] 파일명 정규화 실패({raw}): {e}")
+
+        if nfc in seen:
+            continue
+        e = _entry(nfc)
         if e:
+            seen.add(nfc)
             days.append(e)
 
-    if not any(d["file"] == current_file for d in days):
-        e = _entry(current_file)
+    cur_nfc = unicodedata.normalize("NFC", current_file) if current_file else ""
+    if cur_nfc and cur_nfc not in seen:
+        e = _entry(cur_nfc)
         if e:
             days.append(e)
 
