@@ -32,8 +32,9 @@ jobs:
       # 매니페스트를 지금 폴더 상태 그대로 다시 만든다.
       # 이 과정에서 맥에서 올린 NFD(깨진 한글 파일명)가 NFC로 정리되어
       # 웹에서 열 수 있는 이름이 된다. 스캔은 하지 않으므로 몇 초면 끝난다.
+      # 표준 라이브러리만 쓰는 독립 스크립트라 pip install 없이 바로 돈다.
       - name: Regenerate manifest & normalize filenames
-        run: python make_dashboard.py --regen-manifest
+        run: python regen_manifest.py
 
       - name: Commit normalized files
         run: |

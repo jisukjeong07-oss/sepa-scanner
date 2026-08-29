@@ -70,7 +70,7 @@ jobs:
           git pull --rebase origin main
 
       - name: Regenerate manifest (최종 상태 기준)
-        run: python make_dashboard.py --regen-manifest
+        run: python regen_manifest.py
 
       - name: Push
         run: |
