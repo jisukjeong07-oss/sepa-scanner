@@ -19,6 +19,8 @@ import webbrowser
 
 import pandas as pd
 
+import unicodedata
+
 import market_calendar as mc
 import strategy as strat
 
@@ -98,8 +100,7 @@ HTML = """<!DOCTYPE html>
   --up:#C0343B;      /* 한국 시장 관행: 강세는 빨강 */
   --down:#1B5FA6;    /* 약세는 파랑 */
   --rail:#DDE3E9;
-}
-*{box-sizing:border-box}
+}*{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
   background:var(--paper); color:var(--ink);
@@ -127,6 +128,28 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
      font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
 .btn-outline:hover{background:#F2F5F8;color:var(--ink)}
 #sessSeg button:disabled{opacity:.35;cursor:not-allowed}
+
+/* 시황 · 리스크 패널 (화면 최상단) */
+.macro{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:20px}
+@media (max-width:820px){.macro{grid-template-columns:1fr}}
+.macro-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;margin-bottom:8px}
+.idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.idx-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.idx-card .nm{font-size:11.5px;color:var(--ink-2)}
+.idx-card .val{font-size:19px;font-weight:800;letter-spacing:-.01em;margin-top:2px}
+.idx-card .chg{font-size:12px;font-weight:700;margin-top:1px}
+.idx-card .chg.pos{color:var(--up)} .idx-card .chg.neg{color:var(--down)}
+.idx-card.fail{color:var(--muted)}
+.risk-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.risk-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;position:relative}
+.risk-card .nm{font-size:10.5px;color:var(--muted);font-weight:600}
+.risk-card .val{font-size:17px;font-weight:800;margin-top:2px}
+.risk-card .lbl{font-size:11px;color:var(--ink-2);margin-top:1px}
+.risk-card .asof{font-size:9.5px;color:var(--muted);margin-top:5px}
+.risk-card.fail .val{color:var(--muted);font-size:12px;font-weight:600}
+.risk-card.warn{border-color:#e8b4b4;background:#fff8f8}
 input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);
   cursor:pointer;color-scheme:light}
@@ -269,6 +292,18 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 </head>
 <body>
 <div class="wrap">
+
+<section class="macro">
+  <div class="macro-idx">
+    <div class="macro-h">시황 개요</div>
+    <div id="idxCards" class="idx-grid"></div>
+  </div>
+  <div class="macro-risk">
+    <div class="macro-h">리스크 신호</div>
+    <div id="riskCards" class="risk-grid"></div>
+  </div>
+</section>
+
 <header>
   <div class="hrow">
     <div>
@@ -341,6 +376,47 @@ const DATA = __DATA__;
 const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "__CURRENT__";
 const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
+const INDEX_SNAPSHOT = __INDEX_SNAPSHOT__;
+const RISK_SIGNALS = __RISK_SIGNALS__;
+
+// ── 시황 · 리스크 패널 렌더 ──────────────────────────────
+(function(){
+  const idxHost = document.getElementById("idxCards");
+  const riskHost = document.getElementById("riskCards");
+  if(!idxHost || !riskHost) return;
+
+  let ih = "";
+  for(const c of (INDEX_SNAPSHOT||[])){
+    if(!c.ok){
+      ih += `<div class="idx-card fail"><div class="nm">${c.name}</div><div class="val">–</div></div>`;
+      continue;
+    }
+    const cls = c.change_pct>0?"pos":(c.change_pct<0?"neg":"");
+    const sign = c.change_pct>0?"+":"";
+    ih += `<div class="idx-card"><div class="nm">${c.name}</div>
+      <div class="val num">${c.value.toLocaleString()}</div>
+      <div class="chg num ${cls}">${sign}${c.change_pct}%</div></div>`;
+  }
+  idxHost.innerHTML = ih || '<div class="idx-card fail">지수 정보 없음</div>';
+
+  let rh = "";
+  for(const r of (RISK_SIGNALS||[])){
+    if(!r.ok){
+      rh += `<div class="risk-card fail"><div class="nm">${r.name}</div>
+        <div class="val">조회 실패</div>
+        ${r.detail?`<div class="asof">${r.detail}</div>`:""}</div>`;
+      continue;
+    }
+    const warn = (r.name==="VIX" && r.value>=30) ||
+                (r.name.includes("Fear") && r.value<=25) ||
+                (r.name.includes("BofA") && r.value<=4.0);
+    rh += `<div class="risk-card${warn?" warn":""}"><div class="nm">${r.name}</div>
+      <div class="val num">${r.value}${r.name.includes("BofA")?"%":""}</div>
+      <div class="lbl">${r.label}</div>
+      <div class="asof">기준: ${r.as_of||"–"}</div></div>`;
+  }
+  riskHost.innerHTML = rh || '<div class="risk-card fail">리스크 신호 없음</div>';
+})();
 let view="pass", mkt="US", minRS=0, q="", sortKey="cap", sortDir=-1, open=null;
 
 const COLS=[
@@ -698,7 +774,8 @@ def _day_list(out_dir: str, current_file: str) -> list:
 
 def build(csv_path: str, out_path: str = None, open_browser: bool = True,
          hist_dir: str = None, generate_strategy: bool = True,
-         session: str = "MANUAL") -> str:
+         session: str = "MANUAL", index_snapshot: list = None,
+         risk_signals: list = None) -> str:
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
             f"스캔 결과 파일이 없습니다: {csv_path}\n"
@@ -775,10 +852,17 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__US_DOT__", _dot(us_stat["open"]))
             .replace("__KR_LABEL__", kr_stat["label"])
             .replace("__US_LABEL__", us_stat["label"])
-            .replace("__ACTIONS_URL__", _actions_url()))
+            .replace("__ACTIONS_URL__", _actions_url())
+            .replace("__INDEX_SNAPSHOT__", json.dumps(index_snapshot or [], ensure_ascii=False))
+            .replace("__RISK_SIGNALS__", json.dumps(risk_signals or [], ensure_ascii=False)))
 
     # 최종 파일은 history/ (영구 보관) 와 output/ (당일 산출물) 양쪽에 둔다.
-    fname = f"SEPA대시보드_{stamp}_{session}.html"
+    # 파일명을 NFC로 강제 통일한다.
+    # 맥은 한글 파일명을 자모 분리형(NFD)으로 저장하는데, 깃허브 서버(리눅스)는
+    # 결합형(NFC)을 쓴다. 같은 '대시보드'라는 글자라도 두 형태는 바이트 단위로
+    # 다른 문자열이라, 한쪽에서 만든 파일을 다른 쪽 방식으로 링크하면 404가 난다.
+    # 어느 컴퓨터에서 실행하든 항상 NFC로 저장해 이 문제 자체가 생기지 않게 한다.
+    fname = unicodedata.normalize("NFC", f"SEPA대시보드_{stamp}_{session}.html")
     hist_path = os.path.join(hist_dir, fname)
     out_path = out_path or os.path.join(OUT_DIR, fname)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -810,12 +894,42 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     return out_path
 
 
+def regen_manifest(hist_dir: str = None) -> str:
+    """
+    스캔을 다시 하지 않고, history/ 폴더를 지금 상태 그대로 다시 훑어
+    manifest.json만 새로 쓴다.
+
+    왜 필요한가: 예전 방식은 스캔이 '시작될 때' 체크아웃해온 파일 목록만
+    보고 manifest.json을 만들었다. 스캔이 오래 걸리는 동안(한국 전종목이면
+    수십 분) 다른 곳(예: 로컬 맥)에서 history/ 에 파일을 올려도, 그 새 파일이
+    실제로는 나중에 git이 합쳐줘서 존재하게 되지만 manifest.json 내용은
+    스캔 시작 시점 기준으로 이미 굳어버려 그 존재를 모르는 문제가 있었다.
+    커밋 직전에 이 함수로 한 번 더 훑으면, 그 시점에 실제로 폴더에 있는
+    모든 파일을 정확히 반영한다.
+    """
+    hist_dir = hist_dir or HIST_DIR
+    if not os.path.isdir(hist_dir):
+        print(f"[안내] {hist_dir} 폴더가 없어 매니페스트를 만들지 않습니다.")
+        return ""
+    days = _day_list(hist_dir, current_file="")
+    manifest_path = os.path.join(hist_dir, "manifest.json")
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(days, f, ensure_ascii=False)
+    print(f"매니페스트 재생성: {manifest_path} ({len(days)}개 항목)")
+    return manifest_path
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", default=None)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--hist-dir", default=None)
     ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL", "HIST"])
+    ap.add_argument("--regen-manifest", action="store_true",
+                    help="스캔 없이 history/ 폴더를 다시 훑어 manifest.json만 갱신")
     a = ap.parse_args()
+    if a.regen_manifest:
+        regen_manifest(a.hist_dir)
+        raise SystemExit(0)
     csv_path = a.csv or os.path.join(OUT_DIR, f"sepa_scan_{dt.date.today():%Y%m%d}.csv")
     build(csv_path, open_browser=not a.no_open, hist_dir=a.hist_dir, session=a.session)
