@@ -29,6 +29,7 @@ jobs:
         run: |
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
+          cp history/manifest.json site/ 2>/dev/null || true
           latest=$(ls -t history/SEPA대시보드_*.html | head -1)
           cp "$latest" site/index.html
           echo "배포 파일 수: $(ls site/ | wc -l)"
