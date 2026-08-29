@@ -11,8 +11,7 @@
   --up:#C0343B;      /* 한국 시장 관행: 강세는 빨강 */
   --down:#1B5FA6;    /* 약세는 파랑 */
   --rail:#DDE3E9;
-}
-*{box-sizing:border-box}
+}*{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{
   background:var(--paper); color:var(--ink);
@@ -40,6 +39,28 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
      font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
 .btn-outline:hover{background:#F2F5F8;color:var(--ink)}
 #sessSeg button:disabled{opacity:.35;cursor:not-allowed}
+
+/* 시황 · 리스크 패널 (화면 최상단) */
+.macro{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:20px}
+@media (max-width:820px){.macro{grid-template-columns:1fr}}
+.macro-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  font-weight:700;margin-bottom:8px}
+.idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.idx-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+.idx-card .nm{font-size:11.5px;color:var(--ink-2)}
+.idx-card .val{font-size:19px;font-weight:800;letter-spacing:-.01em;margin-top:2px}
+.idx-card .chg{font-size:12px;font-weight:700;margin-top:1px}
+.idx-card .chg.pos{color:var(--up)} .idx-card .chg.neg{color:var(--down)}
+.idx-card.fail{color:var(--muted)}
+.risk-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.risk-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;position:relative}
+.risk-card .nm{font-size:10.5px;color:var(--muted);font-weight:600}
+.risk-card .val{font-size:17px;font-weight:800;margin-top:2px}
+.risk-card .lbl{font-size:11px;color:var(--ink-2);margin-top:1px}
+.risk-card .asof{font-size:9.5px;color:var(--muted);margin-top:5px}
+.risk-card.fail .val{color:var(--muted);font-size:12px;font-weight:600}
+.risk-card.warn{border-color:#e8b4b4;background:#fff8f8}
 input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);
   cursor:pointer;color-scheme:light}
@@ -182,6 +203,18 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 </head>
 <body>
 <div class="wrap">
+
+<section class="macro">
+  <div class="macro-idx">
+    <div class="macro-h">시황 개요</div>
+    <div id="idxCards" class="idx-grid"></div>
+  </div>
+  <div class="macro-risk">
+    <div class="macro-h">리스크 신호</div>
+    <div id="riskCards" class="risk-grid"></div>
+  </div>
+</section>
+
 <header>
   <div class="hrow">
     <div>
@@ -253,7 +286,48 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
 const DATA = [];
 const DAYS = [{"file": "SEPA대시보드_20260829_MANUAL.html", "key": "20260829", "session": "MANUAL", "label": "2026-08-29 (Sat) · 수동"}, {"file": "SEPA대시보드_20260829_AM.html", "key": "20260829", "session": "AM", "label": "2026-08-29 (Sat) · 장전"}, {"file": "SEPA대시보드_20260828.html", "key": "20260828", "session": "MANUAL", "label": "2026-08-28 (Fri) · 수동"}];      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "SEPA대시보드_20260829_MANUAL.html";
-const STRATEGY = {"date": "2026-08-29", "generated_at": "2026-08-29 23:13 KST", "session": {"phase": "US_SESSION", "label": "미국 장중 (또는 장 마감 직후)", "focus": "미국 시장이 열려 있거나 막 마감된 시점입니다. 신규 진입은 오늘자 종가 확정 후 재검토를 권장합니다.", "run_session": "MANUAL"}, "kr_status": {"open": false, "label": "휴장 (주말)", "reason": "주말"}, "us_status": {"open": false, "label": "휴장 (주말)", "reason": "주말"}, "sections": [{"title": "1. 오늘의 시장 국면", "body": ["한국: 휴장 (주말) — 스캔 미실시", "미국: 휴장 (주말) — 스캔 미실시"]}, {"title": "2. 포지션 사이징 가이드", "body": ["한국: 휴장", "미국: 휴장", "※ 이는 스캔 통과율(breadth)에 기반한 보조 지표입니다. 지수 자체의 추세(코스피/코스닥, S&P500/나스닥)와 함께 판단하세요."]}, {"title": "3. 신규 진입 체크리스트", "body": ["신규 진입은 피벗포인트(직전 저항 돌파) 근접 종목 중 RS 상위 종목부터 검토합니다.", "매수 후 거래량이 평소 대비 40~50% 이상 증가하며 돌파하는지 확인하세요 (거래량 미동반 돌파는 다이버전스로 간주).", "1회 매수 비중은 총 자본의 20~25%를 넘기지 않고, 분할 진입을 원칙으로 합니다."]}, {"title": "4. 보유·청산 기준", "body": ["손절선은 매수가 대비 -7~8% 고정. SEPA는 이 룰을 예외 없이 지키는 것을 핵심으로 합니다.", "보유 종목이 8개 조건 중 2개 이상 미달로 전환되면 비중 축소를 검토하세요 (관찰 리스트로 편입).", "수익 구간에서는 200일선 또는 50일선 이탈을 트레일링 스탑 기준으로 활용합니다."]}, {"title": "5. 세션 메모", "body": ["미국 장중 (또는 장 마감 직후) — 미국 시장이 열려 있거나 막 마감된 시점입니다. 신규 진입은 오늘자 종가 확정 후 재검토를 권장합니다."]}], "table": [], "disclaimer": "본 전략은 그날 스캔 데이터(통과종목 수, RS 분포)를 SEPA 트렌드템플릿 규칙에 대입해 자동 생성한 것으로, 실시간 뉴스·매크로 지표를 그 순간에 조회해 요약한 것이 아닙니다. 투자 판단의 최종 책임은 투자자 본인에게 있습니다."};   // 매매전략 (null이면 버튼 숨김)
+const STRATEGY = {"date": "2026-08-29", "generated_at": "2026-08-30 00:40 KST", "session": {"phase": "US_SESSION", "label": "미국 장중 (또는 장 마감 직후)", "focus": "미국 시장이 열려 있거나 막 마감된 시점입니다. 신규 진입은 오늘자 종가 확정 후 재검토를 권장합니다.", "run_session": "MANUAL"}, "kr_status": {"open": false, "label": "휴장 (주말)", "reason": "주말"}, "us_status": {"open": false, "label": "휴장 (주말)", "reason": "주말"}, "sections": [{"title": "1. 오늘의 시장 국면", "body": ["한국: 휴장 (주말) — 스캔 미실시", "미국: 휴장 (주말) — 스캔 미실시"]}, {"title": "2. 포지션 사이징 가이드", "body": ["한국: 휴장", "미국: 휴장", "※ 이는 스캔 통과율(breadth)에 기반한 보조 지표입니다. 지수 자체의 추세(코스피/코스닥, S&P500/나스닥)와 함께 판단하세요."]}, {"title": "3. 신규 진입 체크리스트", "body": ["신규 진입은 피벗포인트(직전 저항 돌파) 근접 종목 중 RS 상위 종목부터 검토합니다.", "매수 후 거래량이 평소 대비 40~50% 이상 증가하며 돌파하는지 확인하세요 (거래량 미동반 돌파는 다이버전스로 간주).", "1회 매수 비중은 총 자본의 20~25%를 넘기지 않고, 분할 진입을 원칙으로 합니다."]}, {"title": "4. 보유·청산 기준", "body": ["손절선은 매수가 대비 -7~8% 고정. SEPA는 이 룰을 예외 없이 지키는 것을 핵심으로 합니다.", "보유 종목이 8개 조건 중 2개 이상 미달로 전환되면 비중 축소를 검토하세요 (관찰 리스트로 편입).", "수익 구간에서는 200일선 또는 50일선 이탈을 트레일링 스탑 기준으로 활용합니다."]}, {"title": "5. 세션 메모", "body": ["미국 장중 (또는 장 마감 직후) — 미국 시장이 열려 있거나 막 마감된 시점입니다. 신규 진입은 오늘자 종가 확정 후 재검토를 권장합니다."]}], "table": [], "disclaimer": "본 전략은 그날 스캔 데이터(통과종목 수, RS 분포)를 SEPA 트렌드템플릿 규칙에 대입해 자동 생성한 것으로, 실시간 뉴스·매크로 지표를 그 순간에 조회해 요약한 것이 아닙니다. 투자 판단의 최종 책임은 투자자 본인에게 있습니다."};   // 매매전략 (null이면 버튼 숨김)
+const INDEX_SNAPSHOT = [];
+const RISK_SIGNALS = [];
+
+// ── 시황 · 리스크 패널 렌더 ──────────────────────────────
+(function(){
+  const idxHost = document.getElementById("idxCards");
+  const riskHost = document.getElementById("riskCards");
+  if(!idxHost || !riskHost) return;
+
+  let ih = "";
+  for(const c of (INDEX_SNAPSHOT||[])){
+    if(!c.ok){
+      ih += `<div class="idx-card fail"><div class="nm">${c.name}</div><div class="val">–</div></div>`;
+      continue;
+    }
+    const cls = c.change_pct>0?"pos":(c.change_pct<0?"neg":"");
+    const sign = c.change_pct>0?"+":"";
+    ih += `<div class="idx-card"><div class="nm">${c.name}</div>
+      <div class="val num">${c.value.toLocaleString()}</div>
+      <div class="chg num ${cls}">${sign}${c.change_pct}%</div></div>`;
+  }
+  idxHost.innerHTML = ih || '<div class="idx-card fail">지수 정보 없음</div>';
+
+  let rh = "";
+  for(const r of (RISK_SIGNALS||[])){
+    if(!r.ok){
+      rh += `<div class="risk-card fail"><div class="nm">${r.name}</div>
+        <div class="val">조회 실패</div>
+        ${r.detail?`<div class="asof">${r.detail}</div>`:""}</div>`;
+      continue;
+    }
+    const warn = (r.name==="VIX" && r.value>=30) ||
+                (r.name.includes("Fear") && r.value<=25) ||
+                (r.name.includes("BofA") && r.value<=4.0);
+    rh += `<div class="risk-card${warn?" warn":""}"><div class="nm">${r.name}</div>
+      <div class="val num">${r.value}${r.name.includes("BofA")?"%":""}</div>
+      <div class="lbl">${r.label}</div>
+      <div class="asof">기준: ${r.as_of||"–"}</div></div>`;
+  }
+  riskHost.innerHTML = rh || '<div class="risk-card fail">리스크 신호 없음</div>';
+})();
 let view="pass", mkt="US", minRS=0, q="", sortKey="cap", sortDir=-1, open=null;
 
 const COLS=[
