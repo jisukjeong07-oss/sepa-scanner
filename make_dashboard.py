@@ -193,23 +193,68 @@ label.rs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-
 input[type=range]{width:120px;accent-color:var(--up)}
 button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--up);outline-offset:2px}
 
-/* 표 */
-table{width:100%;border-collapse:collapse;background:var(--surface);
-      border:1px solid var(--line);border-radius:10px;overflow:hidden}
+/* 표 — 높이를 제한하고 내부에서만 스크롤, 헤더는 위에 고정 */
+.tbl-scroll{max-height:52vh;overflow-y:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px}
+table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface)}
 th{font-size:11px;color:var(--muted);text-align:right;padding:11px 10px;
    border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;
-   font-weight:600;letter-spacing:.04em;user-select:none}
-th:first-child,td:first-child{text-align:left;padding-left:14px}
+   font-weight:600;letter-spacing:.04em;user-select:none;
+   position:sticky;top:0;background:var(--surface);z-index:2}
+th:first-child,td:first-child{text-align:left;padding-left:12px}
 th[aria-sort]{color:var(--ink)}
 td{padding:10px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowrap}
 tbody tr{cursor:pointer}
 tbody tr:hover{background:#F6F8FA}
+tbody tr.sel{background:#EEF3F8}
 .tk{font-weight:700;letter-spacing:-.01em}
 .nm{font-size:11px;color:var(--muted);display:block;font-weight:400}
 .pos{color:var(--up)} .neg{color:var(--down)}
 .badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
-       background:#F0F2F5;color:var(--ink-2);margin-left:6px;font-weight:600}
-.badge.p{background:var(--up);color:#fff}
+       background:#F0F2F5;color:var(--ink-2);margin-left:6px;font-weight:600;cursor:help}
+.badge.p{background:var(--up);color:#fff;cursor:default}
+
+/* 관심종목 별 */
+.star{display:inline-block;width:20px;text-align:center;cursor:pointer;
+  font-size:15px;line-height:1;color:#C9CFD6;user-select:none;margin-right:2px}
+.star:hover{color:#E8A33D;transform:scale(1.15)}
+.star.on{color:#E8952B}
+
+/* 미달 조건 툴팁 (PC는 hover, 모바일은 배지 탭) */
+.cellwrap{position:relative;display:inline-block}
+.tip{position:absolute;left:0;top:calc(100% + 6px);z-index:20;min-width:190px;
+  background:#1D242C;color:#fff;border-radius:8px;padding:9px 11px;
+  font-size:11.5px;line-height:1.6;font-weight:400;white-space:normal;
+  box-shadow:0 6px 20px rgba(0,0,0,.22);display:none;text-align:left}
+.tip b{color:#FFC98A;font-weight:700;display:block;margin-bottom:3px}
+.cellwrap:hover .tip{display:block}
+.tip.pin{display:block}
+
+/* 종목 차트 */
+.chart-wrap{margin-top:14px;background:var(--surface);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden}
+.chart-head{display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700}
+.chart-hint{font-size:11px;color:var(--muted);font-weight:400;margin-left:8px}
+.chart-box{height:460px}
+.chart-box iframe{border:0;width:100%;height:100%}
+.btn-sm{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-sm:hover{background:#F2F5F8;color:var(--ink)}
+.btn-sm.danger{color:#A13C3C;border-color:#E8C9C9}
+
+/* 관심종목 동기화 영역 */
+.fav-sync{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:13px 15px;margin-bottom:12px}
+.fav-sync-h{font-size:12.5px;font-weight:700;margin-bottom:4px}
+.fav-sync-p{font-size:11.5px;color:var(--muted);margin:0 0 8px;line-height:1.5}
+#favCode{width:100%;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;
+  border:1px solid var(--line);border-radius:7px;padding:7px 9px;resize:vertical;
+  background:#FAFBFC;color:var(--ink)}
+.fav-sync-btns{display:flex;gap:7px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.fav-msg{font-size:11.5px;color:#2F7A4E;font-weight:600}
+@media print{.chart-wrap,.fav-sync,.star{display:none !important}
+  .tbl-scroll{max-height:none;overflow:visible}}
 
 /* 시그니처: 52주 고점 근접도 트랙 (조건7 = 고점 -25% 이내) */
 .rail{position:relative;width:96px;height:16px;margin-left:auto}
@@ -254,6 +299,10 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 .strat-overlay.show{display:flex}
 .strat-modal{background:#fff;border-radius:12px;max-width:760px;width:100%;
   box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
+.strat-pdf{position:absolute;top:13px;right:46px;border:1px solid #1a2b4c;
+  background:#1a2b4c;color:#fff;border-radius:6px;padding:5px 12px;
+  font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.strat-pdf:hover{opacity:.88}
 .strat-close{position:absolute;top:14px;right:16px;border:0;background:none;
   font-size:20px;line-height:1;cursor:pointer;color:#888}
 .strat-pad{padding:30px 32px 26px}
@@ -276,7 +325,10 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 @media print{
   .strat-overlay{position:static;background:none;padding:0}
   .strat-modal{box-shadow:none;max-width:none}
-  .strat-close{display:none}
+  .strat-close,.strat-pdf{display:none}
+  /* 전략 팝업을 인쇄할 때는 뒤의 대시보드 본문을 숨겨 팝업만 나오게 한다 */
+  body.printing-strat > .wrap > *:not(.strat-overlay){display:none !important}
+  body.printing-strat .strat-overlay{display:block !important}
 }
 @media (max-width:640px){
   .wrap{padding:18px 12px 60px}
@@ -307,7 +359,6 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <header>
   <div class="hrow">
     <div>
-      <div class="eyebrow">Minervini Trend Template · 8조건 정량 스캔</div>
       <h1>SEPA 종목 후보</h1>
       <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)
         <button id="stratOpen" class="strat-open">매매전략</button>
@@ -336,12 +387,14 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <div class="stats">
   <div class="stat"><div class="k">8조건 통과</div><div class="v hl num" id="statPass">0</div></div>
   <div class="stat"><div class="k">7조건 관찰</div><div class="v num" id="statNear">0</div></div>
+  <div class="stat"><div class="k">관심</div><div class="v num" id="statFav">0</div></div>
   <div class="stat"><div class="k">화면 표시</div><div class="v num" id="shown">0</div></div>
 </div>
 
 <div class="strat-overlay" id="stratOverlay">
   <div class="strat-modal">
     <button class="strat-close" id="stratClose" aria-label="닫기">&times;</button>
+    <button class="strat-pdf" id="stratPdf">PDF로 저장</button>
     <div class="strat-pad" id="stratBody"></div>
   </div>
 </div>
@@ -351,6 +404,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <button data-view="pass" aria-pressed="true">통과</button>
     <button data-view="near" aria-pressed="false">관찰</button>
     <button data-view="all" aria-pressed="false">전체</button>
+    <button data-view="fav" aria-pressed="false">관심</button>
   </div>
   <div class="seg" role="group" aria-label="시장">
     <button data-mkt="US" aria-pressed="true">미국</button>
@@ -361,7 +415,29 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   <input type="search" id="q" placeholder="종목 검색" aria-label="종목 검색">
 </div>
 
+<div id="favSync" class="fav-sync" hidden>
+  <div class="fav-sync-h">관심종목 동기화</div>
+  <p class="fav-sync-p">아래 코드를 복사해 다른 기기에서 붙여넣으면 관심종목이 옮겨집니다.
+    (기기마다 따로 저장되므로 자동으로는 공유되지 않습니다)</p>
+  <textarea id="favCode" rows="2" spellcheck="false"></textarea>
+  <div class="fav-sync-btns">
+    <button id="favCopy" class="btn-sm">복사</button>
+    <button id="favApply" class="btn-sm">붙여넣은 코드 적용</button>
+    <button id="favClear" class="btn-sm danger">전체 해제</button>
+    <span id="favMsg" class="fav-msg"></span>
+  </div>
+</div>
+
 <div id="host"></div>
+
+<section id="chartWrap" class="chart-wrap" hidden>
+  <div class="chart-head">
+    <div><span id="chartTitle"></span>
+      <span class="chart-hint">차트 안에서 기간·주봉 변경 가능</span></div>
+    <button id="chartClose" class="btn-sm">닫기</button>
+  </div>
+  <div id="chartBox" class="chart-box"></div>
+</section>
 
 <footer>
 행을 누르면 8개 조건 중 무엇이 미달인지 볼 수 있습니다.
@@ -460,17 +536,34 @@ function rail(v){
     <div class="dot${out}" style="left:${p}%"></div></div>`;
 }
 
+// ── 관심종목 (브라우저에 저장, 기기별로 따로 관리됨) ──────
+const FAV_KEY = "sepa_favorites_v1";
+function loadFavs(){
+  try{
+    const raw = localStorage.getItem(FAV_KEY);
+    return new Set(raw ? JSON.parse(raw) : []);
+  }catch(_e){ return new Set(); }   // 시크릿 모드 등에서 저장이 막힌 경우
+}
+function saveFavs(set){
+  try{ localStorage.setItem(FAV_KEY, JSON.stringify([...set])); }
+  catch(_e){ /* 저장 실패해도 화면 동작은 유지 */ }
+}
+let FAVS = loadFavs();
+const favKey = d => `${d.market}:${d.ticker}`;   // 시장까지 포함해 섞이지 않게
+
 // 시장별로 통계(통과/관찰 수)를 다시 센다 — 전체 DATA가 아니라 선택된 시장 안에서만
 function updateStats(){
   const inMkt = DATA.filter(d=>d.market===mkt);
   document.getElementById("statPass").textContent = inMkt.filter(d=>d.pass).length;
   document.getElementById("statNear").textContent = inMkt.filter(d=>!d.pass && d.met>=7).length;
+  document.getElementById("statFav").textContent = inMkt.filter(d=>FAVS.has(favKey(d))).length;
 }
 
 function filtered(){
   return DATA.filter(d=>{
     if(view==="pass" && !d.pass) return false;
     if(view==="near" && (d.pass || d.met<7)) return false;
+    if(view==="fav" && !FAVS.has(favKey(d))) return false;   // 관심: 조건과 무관하게 찜한 것 전부
     if(d.market!==mkt) return false;
     if(d.rs!=null && d.rs<minRS) return false;
     if(q){
@@ -487,18 +580,25 @@ function filtered(){
   });
 }
 
+function esc(t){ return String(t).replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
 function render(){
   updateStats();
   const rows=filtered();
   document.getElementById("shown").textContent=rows.length;
   const host=document.getElementById("host");
+  document.getElementById("favSync").hidden = (view!=="fav");
 
   if(!rows.length){
-    host.innerHTML='<div class="empty">조건에 맞는 종목이 없습니다. RS 기준을 낮추거나 구분을 바꿔 보세요.</div>';
+    host.innerHTML='<div class="empty">'
+      + (view==="fav"
+          ? "관심종목이 없습니다. 종목 왼쪽의 별을 눌러 추가하세요."
+          : "조건에 맞는 종목이 없습니다. RS 기준을 낮추거나 구분을 바꿔 보세요.")
+      + '</div>';
     return;
   }
 
-  let h='<table><thead><tr>';
+  let h='<div class="tbl-scroll"><table><thead><tr>';
   for(const [k,label,cls] of COLS){
     const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
     const text = k==="cap" ? capUnitLabel(mkt) : label;
@@ -509,9 +609,21 @@ function render(){
   for(const d of rows){
     const same=d.name===d.ticker;
     const nm = same ? "" : (d.name.length>9 ? d.name.slice(0,9)+"…" : d.name);
-    h+=`<tr data-t="${d.ticker}" tabindex="0">
-      <td><span class="tk">${d.ticker}</span>${d.pass?'<span class="badge p">통과</span>':`<span class="badge">${d.met}/8</span>`}
-          ${same?"":`<span class="nm" title="${d.name}">${nm}</span>`}</td>
+    const on = FAVS.has(favKey(d));
+    // 미달 조건은 클릭이 아니라 마우스오버(모바일은 배지 탭)로 보여준다
+    const tipBody = d.fails.length
+      ? `<b>미달 ${d.fails.length}개</b>${d.fails.map(f=>"· "+f).join("<br>")}`
+      : `<b>8개 조건 모두 충족</b>`;
+    const badge = d.pass
+      ? '<span class="badge p">통과</span>'
+      : `<span class="badge" data-tip="1">${d.met}/8</span>`;
+
+    h+=`<tr data-t="${d.ticker}" data-m="${d.market}" tabindex="0"${open===d.ticker?' class="sel"':''}>
+      <td><span class="star${on?" on":""}" data-fav="${esc(favKey(d))}"
+            title="${on?"관심종목에서 제거":"관심종목에 추가"}">${on?"★":"☆"}</span
+        ><span class="cellwrap"><span class="tk">${d.ticker}</span>${badge}
+          ${same?"":`<span class="nm" title="${esc(d.name)}">${nm}</span>`}
+          <span class="tip">${tipBody}</span></span></td>
       <td class="num">${num(d.price)}</td>
       <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
       <td>${rail(d.high)}</td>
@@ -520,16 +632,8 @@ function render(){
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
       <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td>
       <td class="num hide-s">${fmtCap(d.cap,d.market)}</td></tr>`;
-
-    if(open===d.ticker){
-      const chips = d.fails.length
-        ? d.fails.map(f=>`<span class="chip no">미달 · ${f}</span>`).join("")
-        : '<span class="chip">8개 조건 모두 충족</span>';
-      h+=`<tr class="detail"><td colspan="${COLS.length}">
-        <h4>${d.ticker} · 조건 점검</h4><div class="cond">${chips}</div></td></tr>`;
-    }
   }
-  host.innerHTML=h+"</tbody></table>";
+  host.innerHTML=h+"</tbody></table></div>";
 }
 
 document.addEventListener("click",e=>{
@@ -549,15 +653,129 @@ document.addEventListener("click",e=>{
     if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=1;}
     render(); return;
   }
+  // 별: 관심종목 토글. 행 클릭(차트 열기)과 겹치지 않게 여기서 처리를 끝낸다.
+  const star=e.target.closest(".star[data-fav]");
+  if(star){
+    e.stopPropagation();
+    const k=star.dataset.fav;
+    if(FAVS.has(k)) FAVS.delete(k); else FAVS.add(k);
+    saveFavs(FAVS);
+    render();
+    return;
+  }
+
+  // 배지 탭: 모바일에선 마우스오버가 없으므로 탭으로 툴팁을 띄운다
+  const badge=e.target.closest('.badge[data-tip]');
+  if(badge){
+    e.stopPropagation();
+    const tip=badge.closest(".cellwrap")?.querySelector(".tip");
+    document.querySelectorAll(".tip.pin").forEach(t=>{ if(t!==tip) t.classList.remove("pin"); });
+    tip?.classList.toggle("pin");
+    return;
+  }
+
   const tr=e.target.closest("tbody tr[data-t]");
-  if(tr){ open = open===tr.dataset.t ? null : tr.dataset.t; render(); }
+  if(tr){
+    const t=tr.dataset.t;
+    if(open===t){ open=null; hideChart(); }
+    else { open=t; showChart(t, tr.dataset.m); }
+    render();
+    return;
+  }
+
+  // 표 바깥을 누르면 열려 있던 툴팁을 닫는다
+  document.querySelectorAll(".tip.pin").forEach(t=>t.classList.remove("pin"));
 });
 
 document.addEventListener("keydown",e=>{
   if(e.key!=="Enter" && e.key!==" ") return;
   const tr=e.target.closest && e.target.closest("tbody tr[data-t]");
-  if(tr){ e.preventDefault(); open = open===tr.dataset.t ? null : tr.dataset.t; render(); }
+  if(tr){
+    e.preventDefault();
+    const t=tr.dataset.t;
+    if(open===t){ open=null; hideChart(); }
+    else { open=t; showChart(t, tr.dataset.m); }
+    render();
+  }
 });
+
+// ── TradingView 차트 ────────────────────────────────────
+// 한국은 KRX:종목코드, 미국은 티커 그대로 쓴다.
+// 위젯 자체에 기간·봉 전환 도구가 들어 있어 따로 만들지 않는다.
+function tvSymbol(ticker, market){
+  return market==="KR" ? `KRX:${ticker}` : ticker;
+}
+function showChart(ticker, market){
+  const wrap=document.getElementById("chartWrap");
+  const box=document.getElementById("chartBox");
+  const sym=tvSymbol(ticker, market);
+  const row=DATA.find(d=>d.ticker===ticker && d.market===market);
+  document.getElementById("chartTitle").textContent =
+    (row && row.name!==row.ticker) ? `${row.name} (${ticker})` : ticker;
+
+  // range=12M(약 250거래일) + 일봉 캔들이 기본. 사용자가 차트 안에서 바꿀 수 있다.
+  const q=new URLSearchParams({
+    symbol:sym, interval:"D", range:"12M", theme:"light", style:"1",
+    locale:"kr", hide_side_toolbar:"0", allow_symbol_change:"0",
+    withdateranges:"1", save_image:"0", timezone:"Asia/Seoul",
+  });
+  box.innerHTML=`<iframe loading="lazy" title="${ticker} 차트"
+    src="https://s.tradingview.com/widgetembed/?${q.toString()}"></iframe>`;
+  wrap.hidden=false;
+  wrap.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+function hideChart(){
+  const wrap=document.getElementById("chartWrap");
+  wrap.hidden=true;
+  document.getElementById("chartBox").innerHTML="";   // 정지시켜 리소스 낭비 방지
+}
+document.getElementById("chartClose").addEventListener("click",()=>{
+  open=null; hideChart(); render();
+});
+
+// ── 관심종목 동기화 (복사 / 붙여넣기) ────────────────────
+(function(){
+  const codeEl=document.getElementById("favCode");
+  const msgEl=document.getElementById("favMsg");
+  let timer=null;
+  function flash(t){
+    msgEl.textContent=t;
+    clearTimeout(timer);
+    timer=setTimeout(()=>msgEl.textContent="", 2600);
+  }
+  function refreshCode(){ codeEl.value=[...FAVS].join(","); }
+
+  document.getElementById("favCopy").addEventListener("click",async()=>{
+    refreshCode();
+    if(!codeEl.value){ flash("관심종목이 없습니다."); return; }
+    try{
+      await navigator.clipboard.writeText(codeEl.value);
+      flash("복사했습니다.");
+    }catch(_e){
+      codeEl.select();          // 클립보드 접근이 막힌 환경 대비
+      flash("직접 복사해 주세요 (Cmd/Ctrl+C).");
+    }
+  });
+
+  document.getElementById("favApply").addEventListener("click",()=>{
+    const parts=codeEl.value.split(",").map(x=>x.trim()).filter(Boolean);
+    const valid=parts.filter(x=>/^(KR|US):.+$/.test(x));
+    if(!valid.length){ flash("올바른 코드가 아닙니다."); return; }
+    FAVS=new Set(valid);
+    saveFavs(FAVS);
+    render();
+    flash(`${valid.length}개 적용했습니다.`);
+  });
+
+  document.getElementById("favClear").addEventListener("click",()=>{
+    if(!FAVS.size){ flash("이미 비어 있습니다."); return; }
+    FAVS=new Set(); saveFavs(FAVS); refreshCode(); render();
+    flash("전체 해제했습니다.");
+  });
+
+  const _r=render;
+  render=function(){ _r(); if(!document.getElementById("favSync").hidden) refreshCode(); };
+})();
 
 document.getElementById("rs").addEventListener("input",e=>{
   minRS=+e.target.value;
@@ -680,7 +898,12 @@ function renderStrategy(){
   if(STRATEGY.table && STRATEGY.table.length){
     h += `<table class="strat-table"><caption>RS 90 이상 진입 경과 — 통과 종목</caption>
       <thead><tr><th>종목</th><th>시장</th><th>RS</th><th>52W고점대비%</th><th>경과</th></tr></thead><tbody>`;
-    for(const r of STRATEGY.table){
+    const ordered = [...STRATEGY.table].sort((a,b)=>{
+      // 미국 먼저, 한국 나중. 같은 시장 안에서는 RS 높은 순.
+      if(a.market!==b.market) return a.market==="US" ? -1 : 1;
+      return (b.rs??-1) - (a.rs??-1);
+    });
+    for(const r of ordered){
       h += `<tr><td><strong>${r.name}</strong> <span style="color:#999;font-size:8.5pt">${r.ticker}</span></td>
         <td>${r.market}</td><td>${r.rs==null?'–':r.rs}</td>
         <td>${r.high==null?'–':r.high}</td>
@@ -703,6 +926,15 @@ renderStrategy();
 document.getElementById("stratOpen")?.addEventListener("click", ()=>{
   document.getElementById("stratOverlay").classList.add("show");
 });
+// 전략 팝업 PDF: 인쇄 중에는 본문을 숨기는 클래스를 붙였다가 끝나면 되돌린다
+document.getElementById("stratPdf")?.addEventListener("click", ()=>{
+  document.body.classList.add("printing-strat");
+  const cleanup = ()=>document.body.classList.remove("printing-strat");
+  window.addEventListener("afterprint", cleanup, {once:true});
+  setTimeout(cleanup, 3000);   // afterprint를 안 주는 브라우저 대비
+  window.print();
+});
+
 document.getElementById("stratClose")?.addEventListener("click", ()=>{
   document.getElementById("stratOverlay").classList.remove("show");
 });
