@@ -169,7 +169,13 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   tbody tr{page-break-inside:avoid}
   thead{display:table-header-group}
   .hide-s{display:table-cell !important}
+  /* 인쇄 시 배경색이 지워지면 막대가 통째로 사라진다 */
+  .rail,.rail *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .rail .zone{background:#eee}
+  .rail .dot{background:#C0343B !important;border-color:#fff !important}
+  .rail .dot.out{background:#8A8F98 !important}
+  .rail .track{background:#D6DAE0 !important}
+  .rail .peak{background:#1A1D23 !important}
 }
 
 /* 요약 */
@@ -256,6 +262,13 @@ tbody tr.sel{background:#EEF3F8}
 @media print{.chart-wrap,.fav-sync,.star{display:none !important}
   .tbl-scroll{max-height:none;overflow:visible}}
 
+/* 52주 고점 대비: 숫자 + 근접도 트랙 */
+.railwrap{display:flex;align-items:center;justify-content:flex-end;gap:9px}
+.railnum{font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;
+         white-space:nowrap;min-width:52px;text-align:right}
+.railnum.near{color:var(--up)}          /* 고점 3% 이내 = 돌파 임박 */
+.railnum.out{color:var(--muted)}        /* 조건7 미달 */
+
 /* 시그니처: 52주 고점 근접도 트랙 (조건7 = 고점 -25% 이내) */
 .rail{position:relative;width:96px;height:16px;margin-left:auto}
 .rail .track{position:absolute;top:7px;left:0;right:0;height:2px;background:var(--rail)}
@@ -334,7 +347,9 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   .wrap{padding:18px 12px 60px}
   h1{font-size:21px}
   .hide-s{display:none}
-  .rail{width:64px}
+  .rail{width:52px}
+  .railwrap{gap:6px}
+  .railnum{font-size:11.5px;min-width:46px}
   .stats{gap:18px}
 }
 @media (prefers-reduced-motion:no-preference){
@@ -528,12 +543,19 @@ const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2})
 
 // 고점 근접도: -25%(왼쪽) → 0%(오른쪽, 신고가)
 function rail(v){
-  if(v==null) return '<div class="rail"></div>';
+  // 막대만으로는 값을 읽을 수 없고 인쇄 시 배경이 지워져 통째로 사라진다.
+  // 그래서 항상 숫자를 함께 찍는다. 막대는 보조 표현으로만 둔다.
+  if(v==null) return '<div class="railwrap"><span class="railnum">–</span><div class="rail"></div></div>';
   const p=Math.max(0,Math.min(100,(v+25)/25*100));
   const out=v<-25?" out":"";
-  return `<div class="rail" title="52주 고점 대비 ${v}%">
-    <div class="zone"></div><div class="track"></div><div class="peak"></div>
-    <div class="dot${out}" style="left:${p}%"></div></div>`;
+  const txt=(v>0?"+":"")+v.toFixed(1)+"%";
+  const near=v>=-3?" near":"";
+  return `<div class="railwrap" title="52주 고점 대비 ${v}%">
+    <span class="railnum${out}${near}">${txt}</span>
+    <div class="rail">
+      <div class="zone"></div><div class="track"></div><div class="peak"></div>
+      <div class="dot${out}" style="left:${p}%"></div>
+    </div></div>`;
 }
 
 // ── 관심종목 (브라우저에 저장, 기기별로 따로 관리됨) ──────
