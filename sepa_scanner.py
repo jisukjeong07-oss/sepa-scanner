@@ -65,7 +65,10 @@ ABOVE_LOW_PCT = 30.0         # 조건6: 52주 신저가 대비 +30% 이상
 MA200_SLOPE_DAYS = 21        # 조건3: 200일선이 최소 1개월(≈21영업일) 상승
 MIN_PRICE_KR = 2000          # 동전주 제외
 MIN_PRICE_US = 10.0
-MIN_TURNOVER_KR = 1_000_000_000   # 20일 평균 거래대금 10억원 이상
+# 유동성 하한: 손절이 필요할 때 슬리피지 없이 빠져나올 수 있는 수준이어야 한다.
+# 하루 10~20억 거래되는 종목에서 -7% 손절은 체결 기준으로 -12%가 되기도 한다.
+# 명령행 --min-turnover(억원 단위)로 실행마다 덮어쓸 수 있다.
+MIN_TURNOVER_KR = 5_000_000_000   # 20일 평균 거래대금 50억원 이상
 MIN_DOLLAR_VOL_US = 10_000_000    # 20일 평균 거래대금 $10M 이상
 
 
@@ -462,7 +465,9 @@ def rs_rating(close: pd.DataFrame) -> pd.Series:
 # 3. 트렌드템플릿 8조건 스캔
 # ═════════════════════════════════════════════════════════════
 
-def screen(data: dict, market_tag: str, min_rs: int = MIN_RS) -> pd.DataFrame:
+def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
+           min_turnover: float = None) -> pd.DataFrame:
+    """min_turnover: 20일 평균 거래대금 하한. None이면 시장별 기본 상수를 쓴다."""
     close, value = data["close"], data["value"]
 
     # 데이터가 부족한 종목(신규상장 등) 제외
@@ -499,16 +504,28 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS) -> pd.DataFrame:
     # 유동성/가격 필터 (트렌드템플릿 외 실전 필터)
     avg_val = value.rolling(20).mean().iloc[-1]
     if market_tag == "KR":
-        liq = (px >= MIN_PRICE_KR) & (avg_val >= MIN_TURNOVER_KR)
+        min_val = MIN_TURNOVER_KR if min_turnover is None else float(min_turnover)
+        min_px = MIN_PRICE_KR
     else:
-        liq = (px >= MIN_PRICE_US) & (avg_val >= MIN_DOLLAR_VOL_US)
+        min_val = MIN_DOLLAR_VOL_US if min_turnover is None else float(min_turnover)
+        min_px = MIN_PRICE_US
+    liq = (px >= min_px) & (avg_val >= min_val)
 
     conds = pd.DataFrame({
         "C1_above_150_200": c1, "C2_150_over_200": c2, "C3_200_rising": c3,
         "C4_50_over_150_200": c4, "C5_above_50": c5, "C6_above_low_30": c6,
         "C7_near_high_25": c7, "C8_rs_pass": c8,
     })
-    passed = conds.all(axis=1) & liq.fillna(False)
+    tt_pass = conds.all(axis=1)                  # 8조건만 본 결과
+    liq_ok = liq.fillna(False)
+    passed = tt_pass & liq_ok
+
+    # 하한을 올리면 몇 종목이 걸러졌는지 매 실행마다 눈에 보이게 남긴다.
+    dropped = int((tt_pass & ~liq_ok).sum())
+    unit = "원" if market_tag == "KR" else "달러"
+    print(f"[{market_tag}] 유동성 필터: 20일 평균 거래대금 {min_val:,.0f}{unit} 이상 "
+          f"· 8조건 통과 {int(tt_pass.sum())}종목 중 {dropped}종목 제외 "
+          f"→ 최종 {int(passed.sum())}종목")
 
     result = pd.DataFrame({
         "market": market_tag,
@@ -553,7 +570,8 @@ def us_market_caps(tickers, sleep_sec: float = 0.25) -> dict:
     return out
 
 
-def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None) -> pd.DataFrame:
+def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
+        min_turnover_kr: float = None, min_turnover_us: float = None) -> pd.DataFrame:
     """
     as_of: 'YYYYMMDD'. 주면 그 날짜를 '오늘'인 것처럼 취급해 과거 시점을 스캔한다
     (백필용). 안 주면 실제 오늘 날짜로 스캔한다.
@@ -581,13 +599,13 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None) -> 
                 # 매일 돌리는 용도에는 적합하지 않다.
                 from kr_data_fdr import fetch_kr_fdr, fdr_names, kr_market_caps
                 data = fetch_kr_fdr(start, end)
-                r = screen(data, "KR", min_rs)
+                r = screen(data, "KR", min_rs, min_turnover_kr)
                 r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
                 # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
                 r["market_cap"] = pd.Series(kr_market_caps(r.index))
             else:
                 data = fetch_kr(start, end)
-                r = screen(data, "KR", min_rs)
+                r = screen(data, "KR", min_rs, min_turnover_kr)
                 r.insert(0, "name", pd.Series(kr_names(r.index[r["PASS"]])))
                 r["market_cap"] = None
             results.append(r)
@@ -605,7 +623,7 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None) -> 
         try:
             tickers = us_universe()
             data = fetch_us(tickers, start=start, end=end)
-            r = screen(data, "US", min_rs)
+            r = screen(data, "US", min_rs, min_turnover_us)
             r.insert(0, "name", pd.Series(us_names(r.index)))
             # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
             # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
@@ -656,5 +674,17 @@ if __name__ == "__main__":
     ap.add_argument("--date", default=None,
                     help="YYYYMMDD. 과거 특정 날짜를 '오늘'처럼 소급 스캔한다(백필용). "
                         "생략하면 실제 오늘 날짜.")
+    ap.add_argument("--min-turnover", type=float, default=None, metavar="억원",
+                    help=f"한국 종목 20일 평균 거래대금 하한(억원). "
+                         f"생략하면 기본 {MIN_TURNOVER_KR/1e8:.0f}억원. 예: --min-turnover 100")
+    ap.add_argument("--min-dollar-vol", type=float, default=None, metavar="백만달러",
+                    help=f"미국 종목 20일 평균 거래대금 하한(백만 달러). "
+                         f"생략하면 기본 {MIN_DOLLAR_VOL_US/1e6:.0f}백만 달러.")
     a = ap.parse_args()
-    run(a.market, a.min_rs, a.kr_source, as_of=a.date)
+
+    # 입력 단위(억원 / 백만달러)를 내부 단위(원 / 달러)로 환산
+    kr_min = None if a.min_turnover is None else a.min_turnover * 1e8
+    us_min = None if a.min_dollar_vol is None else a.min_dollar_vol * 1e6
+
+    run(a.market, a.min_rs, a.kr_source, as_of=a.date,
+        min_turnover_kr=kr_min, min_turnover_us=us_min)
