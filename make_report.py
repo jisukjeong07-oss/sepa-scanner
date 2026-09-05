@@ -88,13 +88,18 @@ S = {
                            leading=10, textColor=colors.white),
 }
 
+# 50일선 이격 경고 임계값 (대시보드와 동일 기준)
+# 미네르비니는 50일선에서 크게 벌어진 종목의 신규 진입을 금한다.
+EXT_WARN = 25.0   # 이 이상이면 과열 — 신규 진입 부적합
+EXT_CAUT = 15.0   # 이 이상이면 주의
+
 COLS = [
     ("name", "종목명", 30),
     ("price", "현재가", 20),
     ("RS", "RS", 12),
     ("vs_52w_high_%", "52W고점\n대비%", 20),
     ("vs_52w_low_%", "52W저점\n대비%", 20),
-    ("vs_MA50_%", "50일선\n대비%", 20),
+    ("vs_MA50_%", "50일선\n이격%", 20),
     ("MA200_slope_%", "200일선\n1개월기울기%", 26),
     ("avg_turnover_20d", "20일평균\n거래대금", 26),
 ]
@@ -118,6 +123,20 @@ def _table(df: pd.DataFrame) -> Table:
                 try:
                     v = f"{float(v)/1e8:,.0f}억" if r["market"] == "KR" else f"${float(v)/1e6:,.0f}M"
                 except Exception:
+                    v = "-"
+                row.append(Paragraph(str(v), S["cell"]))
+            elif key == "vs_MA50_%":
+                # 50일선에서 크게 벌어진 종목은 손절선이 기술적 의미를 잃는다.
+                # 표에서 한눈에 걸러낼 수 있도록 색과 기호로 표시한다.
+                try:
+                    f = float(v)
+                    if f >= EXT_WARN:
+                        v = f"<font color='#C0343B'><b>{f:,.1f} !</b></font>"
+                    elif f >= EXT_CAUT:
+                        v = f"<font color='#A96A0B'>{f:,.1f}</font>"
+                    else:
+                        v = f"{f:,.1f}"
+                except (TypeError, ValueError):
                     v = "-"
                 row.append(Paragraph(str(v), S["cell"]))
             else:

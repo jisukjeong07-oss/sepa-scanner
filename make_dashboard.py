@@ -169,6 +169,9 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   tbody tr{page-break-inside:avoid}
   thead{display:table-header-group}
   .hide-s{display:table-cell !important}
+  .ext-warn{-webkit-print-color-adjust:exact;print-color-adjust:exact;
+            background:#FBEAEA !important;color:#C0343B !important}
+  .ext-caut{color:#A96A0B !important}
   /* 인쇄 시 배경색이 지워지면 막대가 통째로 사라진다 */
   .rail,.rail *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .rail .zone{background:#eee}
@@ -261,6 +264,11 @@ tbody tr.sel{background:#EEF3F8}
 .fav-msg{font-size:11.5px;color:#2F7A4E;font-weight:600}
 @media print{.chart-wrap,.fav-sync,.star{display:none !important}
   .tbl-scroll{max-height:none;overflow:visible}}
+
+/* 50일선 이격 경고 (25%+ 과열 / 15%+ 주의) */
+.ext-warn{color:#C0343B;font-weight:800;background:#FBEAEA;
+          padding:1px 5px;border-radius:3px;white-space:nowrap}
+.ext-caut{color:#A96A0B;font-weight:700}
 
 /* 52주 고점 대비: 숫자 + 근접도 트랙 */
 .railwrap{display:flex;align-items:center;justify-content:flex-end;gap:9px}
@@ -516,7 +524,7 @@ const COLS=[
   ["rs","RS",""],
   ["high","52주 고점 대비","rail"],
   ["low","저점 대비%","hide-s"],
-  ["ma50","50일선%","hide-s"],
+  ["ma50","50일선 이격%","hide-s"],
   ["slope","200일선 기울기%","hide-s"],
   ["turnover","거래대금","hide-s"],
   ["cap","cap-caption","hide-s"],   // 라벨은 시장에 따라 렌더 시점에 동적으로 붙인다
@@ -539,6 +547,19 @@ function fmtCap(v, m){
   return v>=1e11 ? Math.round(u).toLocaleString() : u.toFixed(2);
 }
 const sign=v=>v==null?"":(v>0?"pos":(v<0?"neg":""));
+
+// 50일선 이격 경고
+// 미네르비니는 50일선에서 크게 벌어진 종목의 신규 진입을 금한다.
+// 이격이 크면 -7% 손절선이 기술적으로 아무 의미를 갖지 못하기 때문이다.
+const EXT_WARN = 25;   // 이 이상이면 신규 진입 부적합
+const EXT_CAUT = 15;   // 이 이상이면 주의
+function ext(v){
+  if(v==null) return "–";
+  const txt=(v>0?"+":"")+v.toFixed(1);
+  if(v>=EXT_WARN) return `<span class="ext-warn" title="50일선 위로 ${v}% 이격 · 과열 구간, 신규 진입 부적합">${txt} !</span>`;
+  if(v>=EXT_CAUT) return `<span class="ext-caut" title="50일선 위로 ${v}% 이격 · 진입 시 손절폭 확인">${txt}</span>`;
+  return `<span class="${sign(v)}">${txt}</span>`;
+}
 const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2});
 
 // 고점 근접도: -25%(왼쪽) → 0%(오른쪽, 신고가)
@@ -650,7 +671,7 @@ function render(){
       <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
       <td>${rail(d.high)}</td>
       <td class="num hide-s ${sign(d.low)}">${num(d.low)}</td>
-      <td class="num hide-s ${sign(d.ma50)}">${num(d.ma50)}</td>
+      <td class="num hide-s">${ext(d.ma50)}</td>
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
       <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td>
       <td class="num hide-s">${fmtCap(d.cap,d.market)}</td></tr>`;
