@@ -70,23 +70,22 @@ jobs:
             echo "::warning::AM 세션이 $HHMM 에 시작됐습니다. 장 시작(09:00)에 근접하거나 이미 지났습니다. 당일 장중 시세가 섞일 수 있습니다."
           fi
 
+      # 장전(AM) 세션은 데이터 기준일을 직전 영업일로 못박는다.
+      # 이렇게 하면 실행이 몇 시에 시작되든, 스캔이 몇 시간 걸리든
+      # 결과가 동일하다. 시각에 의존하는 구조를 없애는 것이 핵심이다.
+      # 파일명·표지 날짜는 오늘 그대로 유지된다(--date 가 아니라 --data-date).
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-        run: python run_daily.py --market ALL --min-rs 90 --no-open --session ${{ steps.session.outputs.value }}
-
-        # ── 기준일 고정 (run_daily.py 확인 후 활성화 예정) ──────────
-        # 실행 시각과 소요 시간에 관계없이 항상 같은 결과를 내려면,
-        # 장전 세션에서 기준일을 직전 거래일로 명시해야 한다.
-        # run_daily.py가 --date 를 sepa_scanner 로 전달하는지 확인 후
-        # 아래 형태로 교체한다.
-        #
-        # run: |
-        #   PREV=$(python -c "import pandas as pd; \
-        #     print((pd.Timestamp.now(tz='Asia/Seoul').normalize() - \
-        #     pd.tseries.offsets.BDay(1)).strftime('%Y%m%d'))")
-        #   python run_daily.py --market ALL --min-rs 90 --no-open \
-        #     --session ${{ steps.session.outputs.value }} --date "$PREV"
+        run: |
+          EXTRA=""
+          if [ "${{ steps.session.outputs.value }}" = "AM" ]; then
+            PREV=$(python -c "import pandas as pd; print((pd.Timestamp.now(tz='Asia/Seoul').normalize() - pd.tseries.offsets.BDay(1)).strftime('%Y%m%d'))")
+            echo "장전 세션 — 데이터 기준일을 $PREV 종가로 고정합니다."
+            EXTRA="--data-date $PREV"
+          fi
+          python run_daily.py --market ALL --min-rs 90 --no-open \
+            --session ${{ steps.session.outputs.value }} $EXTRA
 
       # 스캔이 09:00을 넘겨 끝났으면 뒤쪽 종목에 장중 시세가 섞인다.
       # 전 종목이 아니라 "조회 순서상 뒤쪽 종목만" 오염되므로 눈에 잘 안 띈다.
