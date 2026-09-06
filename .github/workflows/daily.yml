@@ -22,6 +22,9 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  TZ: Asia/Seoul          # 모든 step의 date 출력을 KST로 통일
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -47,10 +50,57 @@ jobs:
             echo "value=${{ github.event.inputs.session || 'MANUAL' }}" >> "$GITHUB_OUTPUT"
           fi
 
+      # ──────────────────────────────────────────────────────────────
+      # 실행 지연 감지
+      # Actions는 부하가 몰리면 예약 실행을 수십 분~수 시간 미룬다.
+      # AM 세션이 09:00(장 시작) 이후로 밀리면 FDR이 당일 미완성 봉을
+      # 반환해 "전일 종가" 전제가 깨진다. 그 상황을 로그에 남긴다.
+      # ──────────────────────────────────────────────────────────────
+      - name: Check start time (KST)
+        id: starttime
+        run: |
+          echo "start_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+          echo "=============================================="
+          echo " 세션        : ${{ steps.session.outputs.value }}"
+          echo " 시작 시각   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo " 예정 시각   : AM 07:20 / PM 16:30 (KST)"
+          echo "=============================================="
+          HHMM=$(date +%H%M)
+          if [ "${{ steps.session.outputs.value }}" = "AM" ] && [ "$HHMM" -ge "0850" ]; then
+            echo "::warning::AM 세션이 $HHMM 에 시작됐습니다. 장 시작(09:00)에 근접하거나 이미 지났습니다. 당일 장중 시세가 섞일 수 있습니다."
+          fi
+
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: python run_daily.py --market ALL --min-rs 90 --no-open --session ${{ steps.session.outputs.value }}
+
+        # ── 기준일 고정 (run_daily.py 확인 후 활성화 예정) ──────────
+        # 실행 시각과 소요 시간에 관계없이 항상 같은 결과를 내려면,
+        # 장전 세션에서 기준일을 직전 거래일로 명시해야 한다.
+        # run_daily.py가 --date 를 sepa_scanner 로 전달하는지 확인 후
+        # 아래 형태로 교체한다.
+        #
+        # run: |
+        #   PREV=$(python -c "import pandas as pd; \
+        #     print((pd.Timestamp.now(tz='Asia/Seoul').normalize() - \
+        #     pd.tseries.offsets.BDay(1)).strftime('%Y%m%d'))")
+        #   python run_daily.py --market ALL --min-rs 90 --no-open \
+        #     --session ${{ steps.session.outputs.value }} --date "$PREV"
+
+      # 스캔이 09:00을 넘겨 끝났으면 뒤쪽 종목에 장중 시세가 섞인다.
+      # 전 종목이 아니라 "조회 순서상 뒤쪽 종목만" 오염되므로 눈에 잘 안 띈다.
+      - name: Check finish time (KST)
+        run: |
+          ELAPSED=$(( $(date +%s) - ${{ steps.starttime.outputs.start_epoch }} ))
+          echo "=============================================="
+          echo " 종료 시각   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo " 소요 시간   : $((ELAPSED / 60))분 $((ELAPSED % 60))초"
+          echo "=============================================="
+          HHMM=$(date +%H%M)
+          if [ "${{ steps.session.outputs.value }}" = "AM" ] && [ "$HHMM" -ge "0900" ]; then
+            echo "::error::AM 스캔이 $HHMM 에 종료됐습니다. 장 시작 이후까지 실행되어 일부 종목에 당일 장중 시세가 반영됐을 가능성이 높습니다. 이 회차 결과는 전일 종가 기준이 아닙니다."
+          fi
 
       # history/ 는 캐시가 아니라 저장소에 직접 커밋한다.
       # 캐시는 만료·초기화될 수 있어 "날짜별 조회"가 끊기는 원인이 됐었다.
@@ -90,12 +140,23 @@ jobs:
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
           cp history/manifest.json site/ 2>/dev/null || true
-          cp output/*.pdf site/ 2>/dev/null || true
-          latest=$(ls -t history/SEPA대시보드_*.html | head -1)
+          cp history/*.pdf site/ 2>/dev/null || true
+          cp output/*.pdf  site/ 2>/dev/null || true
+
+          # ls -t 는 mtime 순인데, checkout 직후에는 모든 파일의 mtime이
+          # 방금 시각으로 새로 찍혀 원래 생성 순서를 잃는다.
+          # 파일명이 SEPA대시보드_YYYYMMDD_AM|PM.html 형식이므로
+          # 이름순 정렬이 곧 시간순이다. (같은 날은 AM < PM 으로 순서도 맞음)
+          latest=$(ls history/SEPA대시보드_*.html | sort | tail -1)
           cp "$latest" site/index.html
-          echo "세션: ${{ steps.session.outputs.value }}"
-          echo "배포 파일 수: $(ls site/ | wc -l)"
-          echo "최신 파일: $latest"
+
+          echo "=============================================="
+          echo " 세션          : ${{ steps.session.outputs.value }}"
+          echo " 배포 시각     : $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo " 배포 파일 수  : $(ls site/ | wc -l)"
+          echo " PDF 개수      : $(ls site/*.pdf 2>/dev/null | wc -l)"
+          echo " index.html    : $latest"
+          echo "=============================================="
 
       - uses: actions/upload-pages-artifact@v3
         with:
