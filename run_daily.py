@@ -9,11 +9,29 @@
   python3 run_daily.py --session PM               # 장마감 스캔으로 표시
   python3 run_daily.py --no-open                  # 브라우저 자동 실행 안 함
 
+데이터 기준일 고정(장전 스캔 권장):
+  python3 run_daily.py --session AM --data-date 20260903 --no-open
+  파일명·표지 날짜는 오늘로 두고, 데이터만 지정한 날짜까지로 잘라서 본다.
+
+  장전 스캔에 이게 필요한 이유:
+    FinanceDataReader 는 장중에 조회하면 '오늘'의 미완성 봉을 종가처럼 돌려준다.
+    GitHub Actions 는 예약 실행이 수십 분~수 시간 밀릴 수 있고, 전종목 스캔
+    자체도 수십 분이 걸린다. 그래서 07:20 에 예약해도 09:00(장 시작) 이후에
+    데이터를 읽게 되는 경우가 생기고, 그러면 "전일 종가 기준"이라는 전제가
+    조용히 깨진다. 실제로 2026-09-04 장전 스캔이 그날 09:17 시세를 담았다.
+    --data-date 로 기준일을 못박으면 실행 시각과 소요 시간에 관계없이
+    항상 같은 결과가 나온다.
+
 과거 날짜 소급 스캔(백필):
   python3 run_daily.py --date 20260824 --no-open
   여러 날짜를 채우고 싶으면 반드시 오래된 날짜부터 순서대로 실행할 것.
   (RS90 최초진입일 기록이 날짜 순서에 의존하는 부분이 있어, 거꾸로 실행하면
    일부 종목의 '진입 후 경과일'이 부정확해질 수 있다)
+
+  --date 와 --data-date 의 차이:
+    --date       파일명·표지·데이터를 모두 그 날짜로 (과거 기록을 새로 만들 때)
+    --data-date  파일명·표지는 오늘, 데이터만 그 날짜까지 (오늘자 브리핑을
+                 전일 종가로 만들 때)
 
   한계: 시가총액은 항상 '지금 이 순간' 값이 들어간다(과거 시점 값 불가).
        미국 종목 목록도 위키피디아의 현재 S&P500 구성을 쓰므로, 그 과거
@@ -58,7 +76,7 @@ import make_dashboard
 
 
 def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
-        session="MANUAL", date=None):
+        session="MANUAL", date=None, data_date=None):
     session = (session or "MANUAL").upper()
     if date:
         stamp = date
@@ -68,18 +86,33 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     else:
         stamp = dt.date.today().strftime("%Y%m%d")
 
+    # 데이터를 어느 날짜까지 볼 것인가.
+    # --data-date 가 우선, 없으면 --date, 둘 다 없으면 None(=오늘까지).
+    # stamp(파일명·표지 날짜)와 분리되어 있다는 점이 핵심이다.
+    as_of = data_date or date
+
     print(f"\n===== SEPA 일일 스캔 {dt.datetime.now():%Y-%m-%d %H:%M} "
           f"[{session}] 대상일자={stamp} =====")
     print(f"시장: {market} / RS 기준: {min_rs} 이상")
+    if as_of:
+        print(f"데이터 기준일: {as_of} 까지 (이 날짜 이후 시세는 보지 않음)")
+    else:
+        print("데이터 기준일: 제한 없음 — 장중에 실행하면 당일 미완성 봉이 "
+              "섞일 수 있습니다. 장전 스캔은 --data-date 사용을 권합니다.")
+
     if session == "AM":
-        print("[안내] 장전 스캔입니다. 한국 종목은 개장 전이라 사실상 전날 종가와 "
-              "같고, 새로 확정되는 것은 간밤 미국 종가입니다.")
+        if data_date:
+            print(f"[안내] 장전 스캔입니다. 데이터를 {data_date} 종가로 고정했으므로 "
+                  "실행 시각이 밀려도 결과가 달라지지 않습니다.")
+        else:
+            print("[경고] 장전 스캔인데 --data-date 가 없습니다. 실행이 09:00 이후로 "
+                  "밀리면 당일 장중 시세가 섞입니다.")
     if session == "HIST":
         print("[안내] 과거 시점 소급 스캔입니다. 여러 날짜를 채울 계획이면 "
               "반드시 오래된 날짜부터 순서대로 실행하세요.")
 
     # 1단계: 트렌드템플릿 스캔
-    run(market, min_rs, kr_source, as_of=date)
+    run(market, min_rs, kr_source, as_of=as_of)
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{stamp}.csv")
 
     # 2단계: DART 펀더멘털 (한국 포함 + 키가 있을 때만)
@@ -103,6 +136,8 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
                                      hist_dir=make_dashboard.HIST_DIR, session=session)
 
     print(f"\n완료 [{session}] 대상일자={stamp}")
+    if as_of:
+        print(f"  데이터 기준 : {as_of} 종가")
     print(f"  PDF        : {pdf_path}")
     print(f"  대시보드   : {html_path}")
     print(f"  원본 CSV   : {csv_path}")
@@ -118,11 +153,16 @@ if __name__ == "__main__":
     ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL", "HIST"],
                     help="AM=장전, PM=장마감, MANUAL=수동 조회, HIST=소급조회 (기본 MANUAL)")
     ap.add_argument("--date", default=None,
-                    help="YYYYMMDD. 과거 특정 날짜를 소급 스캔(백필). 생략 시 오늘.")
+                    help="YYYYMMDD. 과거 특정 날짜를 소급 스캔(백필). "
+                         "파일명·표지·데이터가 모두 그 날짜가 된다. 생략 시 오늘.")
+    ap.add_argument("--data-date", default=None, metavar="YYYYMMDD",
+                    help="YYYYMMDD. 파일명·표지는 오늘로 두고 데이터만 이 날짜까지 본다. "
+                         "장전 스캔에서 전일 종가를 고정할 때 사용. "
+                         "--date 와 함께 주면 이쪽이 우선한다.")
     a = ap.parse_args()
     try:
         main(a.market, a.min_rs, a.kr_source, open_browser=not a.no_open,
-            session=a.session, date=a.date)
+            session=a.session, date=a.date, data_date=a.data_date)
     except Exception:
         print("\n실패:")
         traceback.print_exc()
