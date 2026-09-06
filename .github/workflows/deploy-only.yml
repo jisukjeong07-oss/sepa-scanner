@@ -16,6 +16,9 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+env:
+  TZ: Asia/Seoul
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -45,6 +48,9 @@ jobs:
             echo "history 변경 없음 — 커밋 생략"
           else
             git commit -m "매니페스트 갱신 및 파일명 정규화"
+            # 데일리 스캔이 같은 시각에 history/ 를 밀어넣었을 수 있다.
+            # 먼저 받아오지 않으면 push 가 거절되어 배포 전체가 실패한다.
+            git pull --rebase origin main
             git push
           fi
 
@@ -53,10 +59,30 @@ jobs:
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
           cp history/manifest.json site/ 2>/dev/null || true
-          latest=$(ls -t history/SEPA대시보드_*.html | head -1)
+
+          # Pages 는 사이트 전체를 교체한다. 여기서 PDF를 담지 않으면
+          # 직전 배포에 올라가 있던 PDF가 전부 사라져 링크가 404가 된다.
+          # 저장 위치가 history/ 인지 output/ 인지 확실치 않아 둘 다 시도한다.
+          cp history/*.pdf site/ 2>/dev/null || true
+          cp output/*.pdf  site/ 2>/dev/null || true
+
+          # ls -t 는 mtime 순인데, checkout 직후에는 모든 파일의 mtime이
+          # 방금 시각으로 새로 찍혀 원래 생성 순서를 잃는다.
+          # 파일명이 SEPA대시보드_YYYYMMDD_AM|PM.html 형식이므로
+          # 이름순 정렬이 곧 시간순이다. (같은 날은 AM < PM 으로 순서도 맞음)
+          latest=$(ls history/SEPA대시보드_*.html | sort | tail -1)
           cp "$latest" site/index.html
-          echo "배포 파일 수: $(ls site/ | wc -l)"
-          echo "최신 파일: $latest"
+
+          echo "=============================================="
+          echo " 배포 시각     : $(date '+%Y-%m-%d %H:%M:%S %Z')"
+          echo " 배포 파일 수  : $(ls site/ | wc -l)"
+          echo " PDF 개수      : $(ls site/*.pdf 2>/dev/null | wc -l)"
+          echo " index.html    : $latest"
+          echo "=============================================="
+
+          if [ "$(ls site/*.pdf 2>/dev/null | wc -l)" -eq 0 ]; then
+            echo "::warning::배포 대상에 PDF가 하나도 없습니다. history/ 와 output/ 어디에도 PDF가 없어 대시보드의 PDF 링크가 깨질 수 있습니다."
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:
