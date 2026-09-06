@@ -8,6 +8,7 @@
 """
 
 import os
+import shutil
 import argparse
 import datetime as dt
 
@@ -68,6 +69,7 @@ FB, FR = _register_korean_font()
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(BASE, "output")
+HIST_DIR = os.path.join(BASE, "history")   # 저장소에 커밋되어 영구 보관되는 폴더
 
 _s = getSampleStyleSheet()
 S = {
@@ -335,6 +337,20 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
                       leftMargin=12 * mm, rightMargin=12 * mm,
                       title="SEPA 일일 스캔 리포트").build(story)
     print(f"리포트 생성: {out_path}")
+
+    # output/ 은 저장소에 커밋되지 않으므로, 실행이 끝나면 사라진다.
+    # GitHub Pages 는 사이트 전체를 교체하는 방식이라, 배포 워크플로가
+    # 단독으로 돌면 직전 배포의 PDF까지 함께 지워져 링크가 404가 됐다.
+    # history/ 에 복사해 두면 저장소에 남아 과거 리포트도 계속 열린다.
+    try:
+        os.makedirs(HIST_DIR, exist_ok=True)
+        hist_path = os.path.join(HIST_DIR, os.path.basename(out_path))
+        shutil.copy2(out_path, hist_path)
+        print(f"리포트 보관: {hist_path}")
+    except Exception as e:
+        # 보관 실패가 리포트 생성 자체를 막지는 않게 한다.
+        print(f"[경고] history 보관 건너뜀: {e}")
+
     return out_path
 
 
