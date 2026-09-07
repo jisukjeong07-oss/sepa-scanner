@@ -43,6 +43,7 @@
 """
 
 import os
+import shutil
 import argparse
 import datetime as dt
 import traceback
@@ -113,7 +114,19 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
 
     # 1단계: 트렌드템플릿 스캔
     run(market, min_rs, kr_source, as_of=as_of)
+
+    # sepa_scanner 는 CSV 파일명을 '데이터 기준일'로 붙인다.
+    # as_of=20260904 를 주면 sepa_scan_20260904.csv 가 만들어진다.
+    # 반면 리포트·대시보드는 파일명과 표지 날짜를 stamp(오늘)로 써야
+    # 기존 기록과 충돌하지 않는다. 두 이름이 다를 때 오늘 이름으로 복사해
+    # 이후 단계가 전부 stamp 를 따르게 맞춘다.
+    scan_stamp = as_of or stamp
+    src_csv = os.path.join(OUT_DIR, f"sepa_scan_{scan_stamp}.csv")
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{stamp}.csv")
+    if os.path.abspath(src_csv) != os.path.abspath(csv_path):
+        shutil.copy2(src_csv, csv_path)
+        print(f"CSV 사본 생성: {os.path.basename(src_csv)} "
+              f"-> {os.path.basename(csv_path)} (데이터는 {scan_stamp} 종가)")
 
     # 2단계: DART 펀더멘털 (한국 포함 + 키가 있을 때만)
     stage2_path = None
