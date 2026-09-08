@@ -318,7 +318,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 .strat-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,26,.55);
   z-index:50;align-items:flex-start;justify-content:center;padding:26px 14px;overflow-y:auto}
 .strat-overlay.show{display:flex}
-.strat-modal{background:#fff;border-radius:12px;max-width:760px;width:100%;
+.strat-modal{background:#fff;border-radius:12px;max-width:1080px;width:100%;
   box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative}
 .strat-pdf{position:absolute;top:13px;right:46px;border:1px solid #1a2b4c;
   background:#1a2b4c;color:#fff;border-radius:6px;padding:5px 12px;
@@ -341,12 +341,21 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 .strat-table th{background:#1a2b4c;color:#fff;font-size:9pt;padding:7px 9px;text-align:left}
 .strat-table td{padding:6px 9px;border-bottom:1px solid #eee;color:#111111}
 .strat-table tr:nth-child(even) td{background:#F7F9FB}
+.strat-table th.sr,.strat-table td.sr{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.strat-table th,.strat-table td{white-space:nowrap}
+.strat-table td:first-child{white-space:normal;min-width:96px}
+.strat-table th{font-weight:600}
+.strat-table td .ext-warn,.strat-table td .ext-caut{font-size:9.5pt}
+/* 열이 많아 좁은 화면에서 넘칠 수 있어 가로 스크롤을 허용한다 */
+.strat-tblwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media print{ .strat-tblwrap{overflow:visible} .strat-table{font-size:8pt} }
 .strat-disclaimer{margin-top:20px;padding-top:12px;border-top:1px solid #e5e5e5;
   font-size:8.5pt;color:#888;line-height:1.6}
 @media print{
   .strat-overlay{position:static;background:none;padding:0}
   .strat-modal{box-shadow:none;max-width:none}
   .strat-close,.strat-pdf{display:none}
+  @page{size:A4 landscape}
   /* 전략 팝업을 인쇄할 때는 뒤의 대시보드 본문을 숨겨 팝업만 나오게 한다 */
   body.printing-strat > .wrap > *:not(.strat-overlay){display:none !important}
   body.printing-strat .strat-overlay{display:block !important}
@@ -939,20 +948,37 @@ function renderStrategy(){
   }
 
   if(STRATEGY.table && STRATEGY.table.length){
-    h += `<table class="strat-table"><caption>RS 90 이상 진입 경과 — 통과 종목</caption>
-      <thead><tr><th>종목</th><th>시장</th><th>RS</th><th>52W고점대비%</th><th>경과</th></tr></thead><tbody>`;
+    // 첫 화면과 같은 지표를 모두 싣는다. 이 표만 보고도 진입 판단이 서야 하고,
+    // PDF로 인쇄했을 때 판단 근거가 전부 남아야 하기 때문이다.
+    h += `<div class="strat-tblwrap"><table class="strat-table"><caption>통과 종목 — RS 90 이상 진입 경과 및 주요 지표</caption>
+      <thead><tr>
+        <th>종목</th><th style="text-align:center">시장</th>
+        <th class="sr">현재가</th><th class="sr">RS</th>
+        <th class="sr">52주 고점대비</th><th class="sr">저점대비%</th>
+        <th class="sr">50일선 이격%</th><th class="sr">200일선 기울기%</th>
+        <th class="sr">거래대금</th><th class="sr">시가총액</th>
+        <th>경과</th>
+      </tr></thead><tbody>`;
     const ordered = [...STRATEGY.table].sort((a,b)=>{
       // 미국 먼저, 한국 나중. 같은 시장 안에서는 RS 높은 순.
       if(a.market!==b.market) return a.market==="US" ? -1 : 1;
       return (b.rs??-1) - (a.rs??-1);
     });
     for(const r of ordered){
+      const capUnit = r.market==="US" ? "B$" : "천억";
       h += `<tr><td><strong>${r.name}</strong> <span style="color:#999;font-size:8.5pt">${r.ticker}</span></td>
-        <td>${r.market}</td><td>${r.rs==null?'–':r.rs}</td>
-        <td>${r.high==null?'–':r.high}</td>
+        <td style="text-align:center">${r.market}</td>
+        <td class="sr">${num(r.price)}</td>
+        <td class="sr"><strong>${r.rs==null?'–':r.rs}</strong></td>
+        <td class="sr ${sign(r.high)}">${r.high==null?'–':(r.high>0?'+':'')+r.high.toFixed(1)+'%'}</td>
+        <td class="sr">${r.low==null?'–':r.low.toFixed(1)}</td>
+        <td class="sr">${ext(r.ma50)}</td>
+        <td class="sr">${r.slope==null?'–':r.slope.toFixed(2)}</td>
+        <td class="sr">${fmtMoney(r.turnover, r.market)}</td>
+        <td class="sr">${fmtCap(r.cap, r.market)}<span style="color:#aaa;font-size:8pt"> ${capUnit}</span></td>
         <td class="strat-pt">${r.elapsed}</td></tr>`;
     }
-    h += `</tbody></table>`;
+    h += `</tbody></table></div>`;
   }
 
   h += `<div class="strat-disclaimer">${STRATEGY.disclaimer}</div>`;

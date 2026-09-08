@@ -19,6 +19,32 @@ import market_calendar as mc
 KST = dt.timezone(dt.timedelta(hours=9))
 REGISTRY_FILE = "rs90_registry.json"
 
+# 50일선 이격 경고 임계값 (대시보드·리포트와 동일 기준)
+# 미네르비니는 50일선에서 크게 벌어진 종목의 신규 진입을 금한다.
+# 이격이 크면 -7% 손절선이 차트상 아무 지지선도 아닌 자리가 되기 때문이다.
+EXT_WARN = 25.0   # 이 이상이면 과열 — 신규 진입 부적합
+EXT_CAUT = 15.0   # 이 이상이면 주의
+
+
+def _f(v):
+    """NaN·None을 None으로 정규화하고 소수 1자리로 반올림한다."""
+    try:
+        if v is None or pd.isna(v):
+            return None
+        return round(float(v), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _raw(v):
+    """거래대금·시가총액처럼 반올림하면 안 되는 값."""
+    try:
+        if v is None or pd.isna(v):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
 
 # ═════════════════════════════════════════════════════════════
 # RS90 진입일 레지스트리
@@ -165,14 +191,36 @@ def build_strategy(df: pd.DataFrame, date_str: str, registry: dict,
 
     passed = df[df["PASS"] == True].copy()
     rows = []
+    n_warn = n_caut = 0
     for ticker, r in passed.sort_values("RS", ascending=False).iterrows():
         label, first_date = elapsed_for(registry, r["market"], ticker, date_str)
+        ma50 = _f(r.get("vs_MA50_%"))
+
+        # 이격 등급을 여기서 정해 화면·인쇄 어디서든 같은 기준이 적용되게 한다.
+        if ma50 is None:
+            grade = None
+        elif ma50 >= EXT_WARN:
+            grade = "warn"
+            n_warn += 1
+        elif ma50 >= EXT_CAUT:
+            grade = "caution"
+            n_caut += 1
+        else:
+            grade = "ok"
+
         rows.append({
             "ticker": ticker,
             "name": r.get("name", ticker),
             "market": r["market"],
-            "rs": None if pd.isna(r.get("RS")) else round(r["RS"], 1),
-            "high": None if pd.isna(r.get("vs_52w_high_%")) else round(r["vs_52w_high_%"], 1),
+            "price": _raw(r.get("price")),
+            "rs": _f(r.get("RS")),
+            "high": _f(r.get("vs_52w_high_%")),
+            "low": _f(r.get("vs_52w_low_%")),
+            "ma50": ma50,
+            "ma50_grade": grade,
+            "slope": _f(r.get("MA200_slope_%")),
+            "turnover": _raw(r.get("avg_turnover_20d")),
+            "cap": _raw(r.get("market_cap")),
             "elapsed": label or "–",
             "first_date": first_date,
         })
@@ -222,6 +270,16 @@ def build_strategy(df: pd.DataFrame, date_str: str, registry: dict,
         "매수 후 거래량이 평소 대비 40~50% 이상 증가하며 돌파하는지 확인하세요 (거래량 미동반 돌파는 다이버전스로 간주).",
         "1회 매수 비중은 총 자본의 20~25%를 넘기지 않고, 분할 진입을 원칙으로 합니다.",
     ]
+
+    # 이격 경고는 서술로도 한 줄 남긴다. 표를 대충 훑고 넘어가는 경우를 막기 위해서다.
+    total = len(rows)
+    if total:
+        entry_lines.append(
+            f"50일선 이격 기준으로 보면 통과 {total}종목 중 "
+            f"{EXT_WARN:.0f}% 이상 과열이 {n_warn}종목, "
+            f"{EXT_CAUT:.0f}~{EXT_WARN:.0f}% 주의가 {n_caut}종목입니다. "
+            f"이격이 큰 종목은 -7% 손절선이 차트상 지지선과 무관해지므로 신규 진입 대상에서 제외합니다.")
+
     sections.append({"title": "3. 신규 진입 체크리스트", "body": entry_lines})
 
     exit_lines = [
@@ -244,6 +302,8 @@ def build_strategy(df: pd.DataFrame, date_str: str, registry: dict,
         "us_status": us_stat,
         "sections": sections,
         "table": rows,
+        "ext_warn": EXT_WARN,
+        "ext_caut": EXT_CAUT,
         "disclaimer": (
             "본 전략은 그날 스캔 데이터(통과종목 수, RS 분포)를 SEPA 트렌드템플릿 "
             "규칙에 대입해 자동 생성한 것으로, 실시간 뉴스·매크로 지표를 그 순간에 "
