@@ -12,6 +12,17 @@ pykrx와의 차이:
 
 종목 단위로 이어받기를 지원하므로 중간에 끊겨도 재실행하면 이어진다.
 
+[2026-09-09 추가] fdr.StockListing() 폴백
+  FDR이 참조하는 KRX 시가총액 캐시 CSV가 유지관리자 서버에서 사라져
+  StockListing()이 404를 던지는 일이 생겼다. 로컬 macOS와 GitHub Actions
+  양쪽에서 재현되었고 최신 버전(0.9.202)에서도 동일해, 우리 환경이 아니라
+  FDR 쪽 캐시 파일 문제로 확인했다. 반면 fdr.DataReader()(개별 시세 조회)는
+  이 캐시와 무관해 정상 동작한다.
+  그래서 kr_listing()에만 pykrx 폴백을 추가한다. 일봉 수집(fetch_kr_fdr)은
+  손대지 않는다 — 거긴 이 문제와 무관하게 정상 작동 중이다.
+  상장 종목은 하루에 몇 개 바뀌는 수준이라, 목록 조회가 완전히 막혀도
+  마지막으로 저장된 캐시로 스캔을 계속할 수 있게 했다.
+
 설치:
     python3 -m pip install finance-datareader
 """
@@ -32,6 +43,10 @@ FDR_PARTIAL = os.path.join(CACHE_DIR, "kr_fdr_partial")
 SLEEP_SEC = 0.15          # 종목 간 대기 (네이버 배려)
 SAVE_EVERY = 100          # 몇 종목마다 중간 저장할지
 MAX_FAIL_STREAK = 40      # 연속 실패 허용치 (넘으면 차단 의심 → 중단)
+
+# 목록 캐시 유효기간. 평소엔 새로고침용 상한이지만, 조회가 전부 실패하면
+# 기간이 지났어도 이 캐시를 최후의 수단으로 계속 사용한다.
+LISTING_MAX_AGE_DAYS = 7
 
 
 # ═════════════════════════════════════════════════════════════
@@ -59,26 +74,20 @@ def _exists(path: str) -> bool:
     return any(os.path.exists(path + e) for e in (".parquet", ".pkl"))
 
 
+def _cache_age_days(path: str):
+    for e in (".parquet", ".pkl"):
+        if os.path.exists(path + e):
+            return (time.time() - os.path.getmtime(path + e)) / 86400
+    return None
+
+
 # ═════════════════════════════════════════════════════════════
 # 종목 목록
 # ═════════════════════════════════════════════════════════════
 
-def kr_listing() -> pd.DataFrame:
-    """
-    KOSPI/KOSDAQ 상장 종목 목록.
-    반환: index=종목코드, columns=[name, market]
-    """
+def _listing_from_fdr() -> pd.DataFrame:
+    """FDR(네이버) 기반 목록 조회. 실패하면 예외를 그대로 던진다."""
     import FinanceDataReader as fdr
-
-    cache = os.path.join(CACHE_DIR, "kr_listing")
-    if _exists(cache):
-        age_days = None
-        for e in (".parquet", ".pkl"):
-            if os.path.exists(cache + e):
-                age_days = (time.time() - os.path.getmtime(cache + e)) / 86400
-                break
-        if age_days is not None and age_days < 7:      # 일주일간 재사용
-            return _read(cache)
 
     frames = []
     for mkt in ("KOSPI", "KOSDAQ"):
@@ -98,12 +107,9 @@ def kr_listing() -> pd.DataFrame:
             "name": df[name_col].astype(str) if name_col else df[code_col].astype(str),
             "market": mkt,
         })
-        if cap_col:
-            out["market_cap"] = pd.to_numeric(df[cap_col], errors="coerce").values
-        else:
-            out["market_cap"] = pd.NA
+        out["market_cap"] = (pd.to_numeric(df[cap_col], errors="coerce").values
+                              if cap_col else pd.NA)
 
-        # 우선주·스팩·리츠 등 제외 (종목코드 끝자리가 0이 아니면 대개 우선주)
         out = out[out["code"].str.match(r"^\d{6}$")]
         out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
         frames.append(out)
@@ -113,11 +119,102 @@ def kr_listing() -> pd.DataFrame:
             print(f"[FDR] {mkt} {len(out):,}종목 "
                  f"(시가총액 컬럼을 찾지 못함 — 사용 가능한 컬럼: {list(df.columns)[:10]})")
 
-    listing = (pd.concat(frames, ignore_index=True)
-                 .drop_duplicates("code")
-                 .set_index("code"))
-    _write(listing, cache)
-    return listing
+    return (pd.concat(frames, ignore_index=True)
+              .drop_duplicates("code")
+              .set_index("code"))
+
+
+def _listing_from_pykrx() -> pd.DataFrame:
+    """
+    pykrx 폴백. FDR의 KrxMarcapListingCache와 달리 KRX를 직접 호출하므로
+    그 캐시 파일과 무관하게 동작한다. 시가총액도 함께 받아온다.
+    """
+    from pykrx import stock
+
+    today = pd.Timestamp.now(tz="Asia/Seoul")
+    # 휴장일에 걸리면 빈 응답이 오므로 최근 5영업일 중 값이 있는 날짜를 찾는다.
+    frames = []
+    for mkt in ("KOSPI", "KOSDAQ"):
+        df = None
+        for back in range(5):
+            d = (today - pd.Timedelta(days=back)).strftime("%Y%m%d")
+            try:
+                cand = stock.get_market_cap_by_ticker(d, market=mkt)
+            except Exception:
+                cand = None
+            if cand is not None and not cand.empty:
+                df = cand
+                break
+        if df is None:
+            raise RuntimeError(f"pykrx {mkt} 시가총액 조회가 계속 비어 있습니다.")
+
+        df = df.reset_index().rename(columns={"티커": "code"})
+        cap_col = next((c for c in df.columns if "시가총액" in c), None)
+        out = pd.DataFrame({
+            "code": df["code"].astype(str).str.zfill(6),
+            "market": mkt,
+            "market_cap": pd.to_numeric(df[cap_col], errors="coerce") if cap_col else pd.NA,
+        })
+
+        # 종목명은 별도 호출. 시세 없이 이름만 물어보는 거라 부담이 적다.
+        names = {}
+        for code in out["code"]:
+            try:
+                names[code] = stock.get_market_ticker_name(code)
+            except Exception:
+                names[code] = code
+        out["name"] = out["code"].map(names)
+
+        out = out[out["code"].str.match(r"^\d{6}$")]
+        out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
+        frames.append(out)
+        print(f"[pykrx] {mkt} {len(out):,}종목 (FDR 목록 폴백)")
+
+    return (pd.concat(frames, ignore_index=True)
+              .drop_duplicates("code")
+              .set_index("code"))
+
+
+def kr_listing() -> pd.DataFrame:
+    """
+    KOSPI/KOSDAQ 상장 종목 목록.
+    반환: index=종목코드, columns=[name, market, market_cap]
+
+    순서: 최신 캐시(7일 이내) → FDR → pykrx 폴백 → 오래된 캐시라도 재사용.
+    상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막 두 단계까지 가더라도
+    스캔 자체가 무의미해지지는 않는다.
+    """
+    cache = os.path.join(CACHE_DIR, "kr_listing")
+
+    age = _cache_age_days(cache)
+    if age is not None and age < LISTING_MAX_AGE_DAYS:
+        return _read(cache)
+
+    try:
+        listing = _listing_from_fdr()
+        _write(listing, cache)
+        return listing
+    except Exception as e:
+        print(f"[FDR] 종목 목록 조회 실패({str(e)[:120]}) → pykrx로 폴백합니다.")
+
+    try:
+        listing = _listing_from_pykrx()
+        _write(listing, cache)
+        return listing
+    except Exception as e:
+        print(f"[pykrx] 종목 목록 조회도 실패({str(e)[:120]})")
+
+    # 최후 수단: 기간이 지났어도 저장된 캐시가 있으면 그걸로 계속 간다.
+    if _exists(cache):
+        stale = age if age is not None else -1
+        print(f"[경고] 목록 조회가 모두 실패해 {stale:.1f}일 전 캐시를 재사용합니다. "
+              f"신규 상장·상장폐지가 반영되지 않았을 수 있습니다.")
+        return _read(cache)
+
+    raise RuntimeError(
+        "한국 종목 목록을 FDR과 pykrx 양쪽 모두에서 가져오지 못했고, "
+        "재사용할 이전 캐시도 없습니다. 네트워크 상태를 확인해 주세요."
+    )
 
 
 def kr_market_caps(tickers) -> dict:
