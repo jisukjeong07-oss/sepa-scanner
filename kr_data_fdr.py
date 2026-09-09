@@ -127,48 +127,51 @@ def _listing_from_fdr() -> pd.DataFrame:
 def _listing_from_pykrx() -> pd.DataFrame:
     """
     pykrx 폴백. FDR의 KrxMarcapListingCache와 달리 KRX를 직접 호출하므로
-    그 캐시 파일과 무관하게 동작한다. 시가총액도 함께 받아온다.
+    그 캐시 파일과 무관하게 동작한다.
+
+    [2026-09-09 수정] 시가총액 API(get_market_cap_by_ticker)는 KRX 회원제
+    전환 이후 로그인(KRX_ID/KRX_PW)이 없으면 빈 응답을 준다. 이 계정을
+    운영 환경(GitHub Actions)에 두지 않기로 했으므로, 여기서는 로그인이
+    필요 없는 get_market_ticker_list() + get_market_ticker_name()만 쓴다.
+    시가총액은 이 폴백에서는 얻지 못해 None으로 둔다 — 8조건 스캔에는
+    쓰이지 않는 표시용 값이라 스캔 자체에는 영향이 없다.
     """
     from pykrx import stock
 
     today = pd.Timestamp.now(tz="Asia/Seoul")
-    # 휴장일에 걸리면 빈 응답이 오므로 최근 5영업일 중 값이 있는 날짜를 찾는다.
     frames = []
     for mkt in ("KOSPI", "KOSDAQ"):
-        df = None
+        codes = None
+        # 휴장일에 걸리면 빈 목록이 오므로 최근 5일 중 값이 있는 날짜를 찾는다.
         for back in range(5):
             d = (today - pd.Timedelta(days=back)).strftime("%Y%m%d")
             try:
-                cand = stock.get_market_cap_by_ticker(d, market=mkt)
+                cand = stock.get_market_ticker_list(d, market=mkt)
             except Exception:
                 cand = None
-            if cand is not None and not cand.empty:
-                df = cand
+            if cand:
+                codes = cand
                 break
-        if df is None:
-            raise RuntimeError(f"pykrx {mkt} 시가총액 조회가 계속 비어 있습니다.")
+        if not codes:
+            raise RuntimeError(f"pykrx {mkt} 종목 목록 조회가 계속 비어 있습니다.")
 
-        df = df.reset_index().rename(columns={"티커": "code"})
-        cap_col = next((c for c in df.columns if "시가총액" in c), None)
-        out = pd.DataFrame({
-            "code": df["code"].astype(str).str.zfill(6),
-            "market": mkt,
-            "market_cap": pd.to_numeric(df[cap_col], errors="coerce") if cap_col else pd.NA,
-        })
-
-        # 종목명은 별도 호출. 시세 없이 이름만 물어보는 거라 부담이 적다.
         names = {}
-        for code in out["code"]:
+        for code in codes:
             try:
                 names[code] = stock.get_market_ticker_name(code)
             except Exception:
                 names[code] = code
-        out["name"] = out["code"].map(names)
 
+        out = pd.DataFrame({
+            "code": [str(c).zfill(6) for c in codes],
+            "market": mkt,
+            "name": [names[c] for c in codes],
+            "market_cap": pd.NA,   # 로그인 없이는 조회 불가 — kr_market_caps()가 None으로 처리
+        })
         out = out[out["code"].str.match(r"^\d{6}$")]
         out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
         frames.append(out)
-        print(f"[pykrx] {mkt} {len(out):,}종목 (FDR 목록 폴백)")
+        print(f"[pykrx] {mkt} {len(out):,}종목 (FDR 목록 폴백, 시가총액은 미확보)")
 
     return (pd.concat(frames, ignore_index=True)
               .drop_duplicates("code")
