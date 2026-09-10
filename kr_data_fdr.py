@@ -124,6 +124,62 @@ def _listing_from_fdr() -> pd.DataFrame:
               .set_index("code"))
 
 
+def _listing_from_krx_open_unofficial() -> pd.DataFrame:
+    """
+    KRX 정보데이터시스템(data.krx.co.kr) 웹페이지가 내부적으로 쓰는
+    비공식 엔드포인트. 공식 Open API(_listing_from_krx_open_api)가 없거나
+    막혔을 때의 최후 폴백. KRX 개편에 따라 예고 없이 바뀔 수 있다.
+    """
+    import json
+    import urllib.request
+    import urllib.parse
+
+    url = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0 Safari/537.36"),
+        "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    frames = []
+    for mkt, mkt_id in (("KOSPI", "STK"), ("KOSDAQ", "KSQ")):
+        payload = {
+            "bld": "dbms/MDC/STAT/standard/MDCSTAT01901",
+            "mktId": mkt_id,
+            "share": "1",
+            "csvxls_isNo": "false",
+        }
+        data = urllib.parse.urlencode(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = json.loads(r.read().decode("utf-8", errors="replace"))
+
+        rows = body.get("OutBlock_1") or body.get("output") or []
+        if not rows:
+            raise RuntimeError(f"KRX 비공식 엔드포인트에서 {mkt} 데이터를 받지 못했습니다.")
+
+        code_key = next((k for k in ("ISU_SRT_CD", "short_code", "ISU_CD") if k in rows[0]), None)
+        name_key = next((k for k in ("ISU_ABBRV", "isu_abbrv", "ISU_NM") if k in rows[0]), None)
+        if not code_key or not name_key:
+            raise RuntimeError(f"응답 형식이 예상과 다릅니다: {list(rows[0].keys())[:10]}")
+
+        out = pd.DataFrame({
+            "code": [str(r.get(code_key, "")).zfill(6) for r in rows],
+            "name": [str(r.get(name_key, "")) for r in rows],
+            "market": mkt,
+            "market_cap": pd.NA,
+        })
+        out = out[out["code"].str.match(r"^\d{6}$")]
+        out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
+        frames.append(out)
+        print(f"[KRX 비공식] {mkt} {len(out):,}종목 (시가총액은 미확보)")
+
+    return (pd.concat(frames, ignore_index=True)
+              .drop_duplicates("code")
+              .set_index("code"))
+
+
 def _listing_from_pykrx() -> pd.DataFrame:
     """
     pykrx 폴백. FDR의 KrxMarcapListingCache와 달리 KRX를 직접 호출하므로
@@ -178,58 +234,90 @@ def _listing_from_pykrx() -> pd.DataFrame:
               .set_index("code"))
 
 
-def _listing_from_krx_open_api() -> pd.DataFrame:
+def _krx_open_api_call(api_id: str, bas_dd: str) -> list:
     """
-    KRX 정보데이터시스템(data.krx.co.kr)의 상장종목검색 조회 엔드포인트.
-    이 사이트 자체가 브라우저에서 로그인 없이 쓰는 화면이라, 같은 요청을
-    그대로 보내면 로그인 없이 응답을 받는다. 단, 이건 공식 Open API가
-    아니라 웹페이지가 내부적으로 쓰는 엔드포인트라 KRX 쪽 개편에 따라
-    예고 없이 바뀔 수 있다 — 그래서 순서상 세 번째 폴백으로만 둔다.
+    KRX Open API 공통 호출부.
+    2026-09-10 발급받은 개발 명세서 + 샘플 예제 기준:
+      - endpoint: https://data-dbg.krx.co.kr/svc/apis/sto/{api_id}
+      - method:   GET, 쿼리 파라미터 ?basDd=YYYYMMDD
+                  (Spec.docx의 "request" 섹션 {"basDd":"__"}는 파라미터
+                   설명이었을 뿐 POST body 형식이 아니었다 — 샘플 예제의
+                   실제 HTTP Request가 정답: GET .../stk_bydd_trd?basDd=... )
+      - 응답:      {"OutBlock_1": [...]}
+      - 인증:      AUTH_KEY 헤더 (샘플 예제에서 확인됨)
+    KRX_API_KEY 환경변수가 없으면 애초에 호출하지 않고 바로 예외를 던져,
+    다음 폴백(FDR 등)으로 자연스럽게 넘어가게 한다.
     """
     import json
     import urllib.request
     import urllib.parse
 
-    url = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
-    headers = {
-        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0 Safari/537.36"),
-        "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
+    key = os.environ.get("KRX_API_KEY")
+    if not key:
+        raise RuntimeError("KRX_API_KEY 환경변수가 설정되지 않았습니다.")
+
+    url = f"https://data-dbg.krx.co.kr/svc/apis/sto/{api_id}?" + urllib.parse.urlencode({"basDd": bas_dd})
+    req = urllib.request.Request(url, method="GET")
+    # urllib은 기본적으로 헤더 이름을 Title-Case로 정규화한다(AUTH_KEY -> Auth_key).
+    # HTTP 헤더명은 대소문자를 구분하지 않는 게 표준이지만, 서버가 엄격히
+    # 볼 가능성에 대비해 add_unredirected_header로 원래 표기를 그대로 유지한다.
+    req.add_unredirected_header("AUTH_KEY", key)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        payload = json.loads(r.read().decode("utf-8", errors="replace"))
+
+    rows = payload.get("OutBlock_1")
+    if rows is None:
+        raise RuntimeError(f"KRX Open API 응답에 OutBlock_1이 없습니다: {list(payload.keys())[:5]}")
+    return rows
+
+
+def _krx_open_api_recent_bas_dd(api_id: str, max_back: int = 7) -> tuple:
+    """
+    최근 영업일을 모른 채로 바로 조회를 시도한다. 휴장일이면 OutBlock_1이
+    빈 배열로 오므로, 값이 나올 때까지 하루씩 거슬러 올라간다.
+    반환: (기준일 'YYYYMMDD', 그날의 rows)
+    """
+    d = pd.Timestamp.now(tz="Asia/Seoul").normalize()
+    for _ in range(max_back):
+        bas_dd = d.strftime("%Y%m%d")
+        rows = _krx_open_api_call(api_id, bas_dd)
+        if rows:
+            return bas_dd, rows
+        d -= pd.Timedelta(days=1)
+    raise RuntimeError(f"{api_id}: 최근 {max_back}일 모두 빈 응답이었습니다.")
+
+
+def _listing_from_krx_open_api() -> pd.DataFrame:
+    """
+    KRX Open API 공식 목록 조회.
+    stk_bydd_trd(유가증권 일별매매정보) / ksq_bydd_trd(코스닥 일별매매정보)는
+    종목 목록이 아니라 '그날의 매매정보'를 주는 API지만, 응답에 상장된
+    모든 종목이 포함되어 있어 그대로 목록으로도 쓸 수 있다. 게다가 종가·
+    시가총액까지 함께 오므로, 이 경로가 정상 작동하면 목록 문제뿐 아니라
+    fetch_kr_fdr()가 하던 종목별 개별 시세 조회(약 2,600회 호출)도
+    이 한 번의 호출로 상당 부분 대체할 수 있다(추후 개선 여지로 남겨둔다).
+
+    공식 API이므로 이게 성공하면 신뢰도가 가장 높은 소스다. 다만 아직
+    실전 검증 전이라 순서상 FDR·pykrx 다음, KRX 비공식 엔드포인트보다는
+    앞에 둔다.
+    """
     frames = []
-    for mkt, mkt_id in (("KOSPI", "STK"), ("KOSDAQ", "KSQ")):
-        payload = {
-            "bld": "dbms/MDC/STAT/standard/MDCSTAT01901",
-            "mktId": mkt_id,
-            "share": "1",
-            "csvxls_isNo": "false",
-        }
-        data = urllib.parse.urlencode(payload).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers=headers)
-        with urllib.request.urlopen(req, timeout=20) as r:
-            body = json.loads(r.read().decode("utf-8", errors="replace"))
-
-        rows = body.get("OutBlock_1") or body.get("output") or []
-        if not rows:
-            raise RuntimeError(f"KRX 오픈 조회에서 {mkt} 데이터를 받지 못했습니다.")
-
-        code_key = next((k for k in ("ISU_SRT_CD", "short_code", "ISU_CD") if k in rows[0]), None)
-        name_key = next((k for k in ("ISU_ABBRV", "isu_abbrv", "ISU_NM") if k in rows[0]), None)
-        if not code_key or not name_key:
-            raise RuntimeError(f"KRX 오픈 조회 응답 형식이 예상과 다릅니다: {list(rows[0].keys())[:10]}")
+    for mkt_label, api_id in (("KOSPI", "stk_bydd_trd"), ("KOSDAQ", "ksq_bydd_trd")):
+        bas_dd, rows = _krx_open_api_recent_bas_dd(api_id)
 
         out = pd.DataFrame({
-            "code": [str(r.get(code_key, "")).zfill(6) for r in rows],
-            "name": [str(r.get(name_key, "")) for r in rows],
-            "market": mkt,
-            "market_cap": pd.NA,   # 이 엔드포인트는 시가총액을 안 줌 — 표시용이라 문제없음
+            "code": [str(r.get("ISU_CD", "")).strip().zfill(6) for r in rows],
+            "name": [str(r.get("ISU_NM", "")).strip() for r in rows],
+            "market": mkt_label,
+            "market_cap": [
+                pd.to_numeric(str(r.get("MKTCAP", "")).replace(",", ""), errors="coerce")
+                for r in rows
+            ],
         })
         out = out[out["code"].str.match(r"^\d{6}$")]
         out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
         frames.append(out)
-        print(f"[KRX] {mkt} {len(out):,}종목 (data.krx.co.kr 폴백, 시가총액은 미확보)")
+        print(f"[KRX Open API] {mkt_label} {len(out):,}종목 (기준일 {bas_dd}, 시가총액 포함)")
 
     return (pd.concat(frames, ignore_index=True)
               .drop_duplicates("code")
@@ -241,10 +329,13 @@ def kr_listing() -> pd.DataFrame:
     KOSPI/KOSDAQ 상장 종목 목록.
     반환: index=종목코드, columns=[name, market, market_cap]
 
-    순서: 최신 캐시(7일 이내) → FDR → pykrx → KRX 오픈 조회 → 오래된 캐시.
-    2026-09-09에 FDR·pykrx가 같은 날 동시에 막힌 사고가 있어 세 번째
-    소스를 추가했다. 상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막
-    단계(오래된 캐시)까지 가더라도 스캔 자체가 무의미해지지는 않는다.
+    순서: 최신 캐시(7일 이내) → KRX Open API(공식, 키 있을 때만) → FDR
+          → pykrx → KRX 비공식 엔드포인트 → 오래된 캐시.
+    2026-09-09에 FDR·pykrx·비공식 엔드포인트가 같은 날 동시에 막힌 사고가
+    있었고, 그 직후 KRX Open API 정식 키를 발급받아 최우선 순위로 추가했다.
+    KRX_API_KEY가 없으면 이 단계는 즉시 건너뛰어 기존 흐름과 동일하게 동작한다.
+    상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막 단계(오래된 캐시)까지
+    가더라도 스캔 자체가 무의미해지지는 않는다.
     """
     cache = os.path.join(CACHE_DIR, "kr_listing")
 
@@ -253,9 +344,10 @@ def kr_listing() -> pd.DataFrame:
         return _read(cache)
 
     for label, fn in (
+        ("KRX Open API", _listing_from_krx_open_api),
         ("FDR", _listing_from_fdr),
         ("pykrx", _listing_from_pykrx),
-        ("KRX 오픈 조회", _listing_from_krx_open_api),
+        ("KRX 비공식 엔드포인트", _listing_from_krx_open_unofficial),
     ):
         try:
             listing = fn()
@@ -263,7 +355,7 @@ def kr_listing() -> pd.DataFrame:
             return listing
         except Exception as e:
             print(f"[{label}] 종목 목록 조회 실패({str(e)[:120]})"
-                  + ("" if label == "KRX 오픈 조회" else " → 다음 소스로 폴백합니다."))
+                  + ("" if label == "KRX 비공식 엔드포인트" else " → 다음 소스로 폴백합니다."))
 
     # 최후 수단: 기간이 지났어도 저장된 캐시가 있으면 그걸로 계속 간다.
     if _exists(cache):
