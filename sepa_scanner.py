@@ -598,7 +598,18 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                 # KRX 회원제 전환 이후 pykrx는 로그인이 필요하고 IP 차단 위험이 커서
                 # 매일 돌리는 용도에는 적합하지 않다.
                 from kr_data_fdr import fetch_kr_fdr, fdr_names, kr_market_caps
-                data = fetch_kr_fdr(start, end)
+                # 날짜별 조회(KRX Open API)가 종목별 조회(FDR)보다 훨씬 빠르다
+                # (호출 수: 영업일수×2 vs 종목수 약 2,600). 되면 그걸 쓰고,
+                # 안 되면(키 없음, 호출 실패 등) 기존 FDR 방식으로 조용히 돌아간다.
+                # 이 폴백 덕분에 고속 경로가 막혀도 스캔 자체는 계속 돈다.
+                try:
+                    from kr_data_fdr import fetch_kr_krx_open
+                    data = fetch_kr_krx_open(start, end)
+                    print("[KR] KRX Open API 날짜별 조회로 시세 수집 완료 (고속 경로)")
+                except Exception as e:
+                    print(f"[KR] KRX Open API 고속 경로 실패({str(e)[:150]}) "
+                          f"→ 기존 FDR 방식(종목별 조회)으로 폴백합니다.")
+                    data = fetch_kr_fdr(start, end)
                 r = screen(data, "KR", min_rs, min_turnover_kr)
                 r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
                 # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)

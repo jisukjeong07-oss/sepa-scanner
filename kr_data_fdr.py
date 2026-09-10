@@ -575,6 +575,121 @@ def fdr_names(tickers) -> dict:
         return {t: t for t in tickers}
 
 
+# ═════════════════════════════════════════════════════════════
+# 일봉 수집 — KRX Open API 날짜별 조회 (고속 경로)
+# ═════════════════════════════════════════════════════════════
+#
+# fetch_kr_fdr()는 종목 단위로 조회한다(약 2,600회 호출, 40분+).
+# stk_bydd_trd/ksq_bydd_trd는 날짜 하나에 그날 전종목 시세를 한 번에
+# 주므로, 날짜 단위로 조회하면 호출 수가 (영업일수 × 2)로 크게 줄어든다.
+# 증분 캐시를 두어 매일 실행 시 새 날짜만 추가로 받는다 — 초기 1회만
+# 420일치를 채우고, 그 뒤로는 하루 이틀치만 받으면 된다.
+
+KRX_DAILY_CACHE = "kr_krx_daily"
+KRX_DAILY_FAIL_STREAK_MAX = 10   # 연속 실패 허용치 — 넘으면 중단(폴백 유도)
+
+
+def fetch_kr_krx_open(start: str, end: str) -> dict:
+    """
+    KRX Open API(stk_bydd_trd / ksq_bydd_trd)로 날짜별 전종목 시세 수집.
+    start, end: 'YYYYMMDD'
+    반환 형태는 fetch_kr_fdr()과 동일: {"close": wide DF, "value": wide DF, "meta": DF}
+
+    KRX_API_KEY가 없거나 호출이 계속 실패하면 예외를 던진다 — 호출한
+    쪽(sepa_scanner.run())이 이를 잡아 fetch_kr_fdr()로 폴백하도록
+    설계되어 있으므로, 이 함수 자체는 폴백 로직을 갖지 않는다.
+    """
+    if not os.environ.get("KRX_API_KEY"):
+        raise RuntimeError("KRX_API_KEY 환경변수가 없어 고속 경로를 쓸 수 없습니다.")
+
+    cache_path = os.path.join(CACHE_DIR, KRX_DAILY_CACHE)
+    long_df = pd.DataFrame(columns=["date", "ticker", "close", "value", "market"])
+    if _exists(cache_path):
+        long_df = _read(cache_path)
+        long_df["date"] = pd.to_datetime(long_df["date"])
+
+    s = pd.Timestamp(f"{start[:4]}-{start[4:6]}-{start[6:]}")
+    e = pd.Timestamp(f"{end[:4]}-{end[4:6]}-{end[6:]}")
+
+    have_dates = set(long_df["date"].dt.normalize()) if not long_df.empty else set()
+    # 주말은 애초에 제외. 공휴일은 응답이 빈 배열로 오므로 그때 건너뛴다.
+    all_days = pd.bdate_range(s, e)
+    todo = [d for d in all_days if d.normalize() not in have_dates]
+
+    print(f"[KRX Open API] 시세 수집: 전체 {len(all_days)}영업일 중 "
+          f"{len(todo)}일 신규 수집 (나머지는 캐시 재사용)")
+
+    def _save():
+        if not long_df.empty or new_frames:
+            merged = pd.concat([long_df] + new_frames, ignore_index=True) if new_frames else long_df
+            merged = merged.drop_duplicates(subset=["date", "ticker"], keep="last")
+            _write(merged, cache_path)
+            return merged
+        return long_df
+
+    new_frames = []
+    fail_streak = 0
+
+    for i, d in enumerate(todo):
+        bas_dd = d.strftime("%Y%m%d")
+        day_rows = []
+
+        for mkt_label, api_id in (("KOSPI", "stk_bydd_trd"), ("KOSDAQ", "ksq_bydd_trd")):
+            try:
+                rows = _krx_open_api_call(api_id, bas_dd)
+            except Exception as ex:
+                fail_streak += 1
+                if fail_streak <= 3 or fail_streak % 5 == 0:
+                    print(f"  [warn] {bas_dd} {mkt_label}: {str(ex)[:80]}")
+                continue
+
+            if not rows:
+                continue   # 휴장일 — 정상 상황이므로 fail_streak 건드리지 않음
+            fail_streak = 0
+
+            for r in rows:
+                code = str(r.get("ISU_CD", "")).strip().zfill(6)
+                close = pd.to_numeric(str(r.get("TDD_CLSPRC", "")).replace(",", ""), errors="coerce")
+                value = pd.to_numeric(str(r.get("ACC_TRDVAL", "")).replace(",", ""), errors="coerce")
+                if pd.isna(close) or not code:
+                    continue
+                day_rows.append({"date": d, "ticker": code, "close": close,
+                                 "value": 0.0 if pd.isna(value) else value,
+                                 "market": mkt_label})
+
+        if day_rows:
+            new_frames.append(pd.DataFrame(day_rows))
+
+        if fail_streak >= KRX_DAILY_FAIL_STREAK_MAX:
+            _save()
+            raise RuntimeError(
+                f"KRX Open API 호출이 {fail_streak}회 연속 실패했습니다.\n"
+                f"  지금까지 수집분은 저장했습니다. 기존 방식(FDR)으로 폴백합니다."
+            )
+
+        if (i + 1) % 20 == 0:
+            _save()
+            print(f"  ... {i+1}/{len(todo)}일 처리")
+
+        time.sleep(0.2)   # 날짜당 최대 2회 호출이라 종목별 조회보다 훨씬 여유롭다
+
+    long_df = _save()
+
+    mask = (long_df["date"] >= s) & (long_df["date"] <= e)
+    sub = long_df[mask]
+    n_days = sub["date"].nunique()
+    n_tick = sub["ticker"].nunique()
+    print(f"[KRX Open API] 수집 결과: {n_tick:,}종목 / {n_days}영업일 / {len(sub):,}행")
+
+    if n_days < 200:
+        raise RuntimeError(
+            f"확보된 영업일이 {n_days}일로 부족합니다 (200일 이상 필요).\n"
+            f"  → 재실행하면 남은 날짜를 이어서 수집합니다."
+        )
+
+    return _unpack_fdr(sub)   # long -> wide 변환은 기존 함수를 그대로 재사용(컬럼명이 동일)
+
+
 if __name__ == "__main__":
     import argparse
     import datetime as dt
