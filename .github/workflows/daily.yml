@@ -81,6 +81,24 @@ jobs:
             echo "::warning::AM 세션이 $HHMM 에 시작됐습니다. 장 시작(09:00)에 근접하거나 이미 지났습니다. 당일 장중 시세가 섞일 수 있습니다."
           fi
 
+      # ──────────────────────────────────────────────────────────────
+      # 목록 캐시 복원
+      # cache/kr_listing.* 은 KRX 종목 목록의 마지막 성공본이다.
+      # 러너는 매번 새로 뜨므로, 이전 실행이 history/ 와 함께 커밋해 둔
+      # 캐시를 checkout 시점에 받아와야 "FDR·pykrx 둘 다 막혔을 때
+      # 예전 캐시라도 쓴다"는 kr_data_fdr.py의 마지막 방어선이 실제로
+      # 작동한다. 이 스텝이 없으면 그 방어선은 매번 무력화된다.
+      # ──────────────────────────────────────────────────────────────
+      - name: Restore listing cache
+        run: |
+          mkdir -p cache
+          if ls cache/kr_listing.* >/dev/null 2>&1; then
+            age=$(( ( $(date +%s) - $(date -r cache/kr_listing.* +%s | head -1) ) / 86400 ))
+            echo "저장소에 커밋된 종목 목록 캐시 발견 (${age}일 전 것)"
+          else
+            echo "커밋된 종목 목록 캐시 없음 — 이번이 첫 성공 실행에서 새로 만들어집니다."
+          fi
+
       # 장전(AM) 세션은 데이터 기준일을 직전 영업일로 못박는다.
       # 이렇게 하면 실행이 몇 시에 시작되든, 스캔이 몇 시간 걸리든
       # 결과가 동일하다. 시각에 의존하는 구조를 없애는 것이 핵심이다.
@@ -114,13 +132,18 @@ jobs:
 
       # history/ 는 캐시가 아니라 저장소에 직접 커밋한다.
       # 캐시는 만료·초기화될 수 있어 "날짜별 조회"가 끊기는 원인이 됐었다.
-      - name: Commit history
+      #
+      # cache/kr_listing.* 도 같은 이유로 함께 커밋한다. FDR과 pykrx가
+      # 동시에 막히는 사고가 실제로 있었고(2026-09-09), 그때 목록 캐시가
+      # 저장소에 없어 "예전 캐시라도 쓴다"는 마지막 방어선까지 무너졌다.
+      - name: Commit history and listing cache
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add history/
+          git add -f cache/kr_listing.parquet cache/kr_listing.pkl 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "history 변경 없음 — 커밋 생략"
+            echo "history/cache 변경 없음 — 커밋 생략"
           else
             git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
           fi
