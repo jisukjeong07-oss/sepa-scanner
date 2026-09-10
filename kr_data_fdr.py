@@ -297,13 +297,25 @@ def _listing_from_krx_open_api() -> pd.DataFrame:
     fetch_kr_fdr()가 하던 종목별 개별 시세 조회(약 2,600회 호출)도
     이 한 번의 호출로 상당 부분 대체할 수 있다(추후 개선 여지로 남겨둔다).
 
-    공식 API이므로 이게 성공하면 신뢰도가 가장 높은 소스다. 다만 아직
-    실전 검증 전이라 순서상 FDR·pykrx 다음, KRX 비공식 엔드포인트보다는
-    앞에 둔다.
+    공식 API이므로 이게 성공하면 신뢰도가 가장 높은 소스다.
+
+    [2026-09-10] KOSPI(stk_bydd_trd)와 KOSDAQ(ksq_bydd_trd)는 KRX Open API
+    포털에서 개별 승인 단위라, 한쪽만 신청/승인됐으면 다른 쪽은 401을
+    반환한다. 실제로 KOSPI만 승인된 계정에서 KOSDAQ 호출이 401로 막히는
+    사례가 있었다. 시장 단위로 개별 try/except를 둬서, 한쪽만 성공해도
+    그 시장만큼은 결과에 반영한다 — 이전에는 하나가 실패하면 이미 받은
+    916종목(KOSPI)까지 통째로 버려지고 있었다.
     """
     frames = []
+    errors = []
     for mkt_label, api_id in (("KOSPI", "stk_bydd_trd"), ("KOSDAQ", "ksq_bydd_trd")):
-        bas_dd, rows = _krx_open_api_recent_bas_dd(api_id)
+        try:
+            bas_dd, rows = _krx_open_api_recent_bas_dd(api_id)
+        except Exception as e:
+            errors.append(f"{mkt_label}: {str(e)[:100]}")
+            print(f"[KRX Open API] {mkt_label} 조회 실패({str(e)[:100]}) "
+                  f"— 이 시장만 건너뛰고 계속 진행합니다.")
+            continue
 
         out = pd.DataFrame({
             "code": [str(r.get("ISU_CD", "")).strip().zfill(6) for r in rows],
@@ -318,6 +330,13 @@ def _listing_from_krx_open_api() -> pd.DataFrame:
         out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
         frames.append(out)
         print(f"[KRX Open API] {mkt_label} {len(out):,}종목 (기준일 {bas_dd}, 시가총액 포함)")
+
+    if not frames:
+        raise RuntimeError("KRX Open API: 모든 시장 조회 실패 — " + " / ".join(errors))
+    if errors:
+        # 일부 시장만 성공한 경우, 그 사실을 결과에 묻어두지 않고 경고로 남긴다.
+        print(f"[KRX Open API] 일부 시장 누락된 채로 진행합니다 ({' / '.join(errors)}). "
+              f"승인 상태를 KRX Open API 포털에서 확인하세요.")
 
     return (pd.concat(frames, ignore_index=True)
               .drop_duplicates("code")
@@ -334,6 +353,12 @@ def kr_listing() -> pd.DataFrame:
     2026-09-09에 FDR·pykrx·비공식 엔드포인트가 같은 날 동시에 막힌 사고가
     있었고, 그 직후 KRX Open API 정식 키를 발급받아 최우선 순위로 추가했다.
     KRX_API_KEY가 없으면 이 단계는 즉시 건너뛰어 기존 흐름과 동일하게 동작한다.
+
+    [2026-09-10] KRX Open API에서 KOSPI/KOSDAQ가 개별 승인 단위임이
+    확인되어, 한 소스가 두 시장 중 하나만 반환하는 경우가 생긴다.
+    그래서 소스를 하나 고르고 끝내는 게 아니라, 아직 못 채운 시장이
+    남아 있으면 다음 소스로 그 시장만 보완한다.
+
     상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막 단계(오래된 캐시)까지
     가더라도 스캔 자체가 무의미해지지는 않는다.
     """
@@ -343,19 +368,42 @@ def kr_listing() -> pd.DataFrame:
     if age is not None and age < LISTING_MAX_AGE_DAYS:
         return _read(cache)
 
+    need = {"KOSPI", "KOSDAQ"}
+    have = {}   # market -> DataFrame
+
     for label, fn in (
         ("KRX Open API", _listing_from_krx_open_api),
         ("FDR", _listing_from_fdr),
         ("pykrx", _listing_from_pykrx),
         ("KRX 비공식 엔드포인트", _listing_from_krx_open_unofficial),
     ):
+        if not need:
+            break
         try:
             listing = fn()
-            _write(listing, cache)
-            return listing
         except Exception as e:
-            print(f"[{label}] 종목 목록 조회 실패({str(e)[:120]})"
-                  + ("" if label == "KRX 비공식 엔드포인트" else " → 다음 소스로 폴백합니다."))
+            print(f"[{label}] 종목 목록 조회 실패({str(e)[:120]}) → 다음 소스로 폴백합니다.")
+            continue
+
+        got = set(listing["market"].unique()) & need
+        if not got:
+            print(f"[{label}] 필요한 시장({', '.join(sorted(need))})을 채우지 못했습니다.")
+            continue
+
+        for mkt in got:
+            have[mkt] = listing[listing["market"] == mkt]
+        need -= got
+        if got != {"KOSPI", "KOSDAQ"}:
+            print(f"[{label}] {', '.join(sorted(got))}만 확보. "
+                  f"남은 시장({', '.join(sorted(need)) if need else '없음'})은 다음 소스에서 시도합니다.")
+
+    if have:
+        listing = pd.concat(have.values())
+        if need:
+            print(f"[경고] {', '.join(sorted(need))}는 어떤 소스에서도 얻지 못해 "
+                  f"이번 스캔에서 제외됩니다.")
+        _write(listing, cache)
+        return listing
 
     # 최후 수단: 기간이 지났어도 저장된 캐시가 있으면 그걸로 계속 간다.
     if _exists(cache):
