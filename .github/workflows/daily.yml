@@ -106,6 +106,7 @@ jobs:
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
         run: |
           EXTRA=""
           if [ "${{ steps.session.outputs.value }}" = "AM" ]; then
