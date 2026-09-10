@@ -178,14 +178,73 @@ def _listing_from_pykrx() -> pd.DataFrame:
               .set_index("code"))
 
 
+def _listing_from_krx_open_api() -> pd.DataFrame:
+    """
+    KRX 정보데이터시스템(data.krx.co.kr)의 상장종목검색 조회 엔드포인트.
+    이 사이트 자체가 브라우저에서 로그인 없이 쓰는 화면이라, 같은 요청을
+    그대로 보내면 로그인 없이 응답을 받는다. 단, 이건 공식 Open API가
+    아니라 웹페이지가 내부적으로 쓰는 엔드포인트라 KRX 쪽 개편에 따라
+    예고 없이 바뀔 수 있다 — 그래서 순서상 세 번째 폴백으로만 둔다.
+    """
+    import json
+    import urllib.request
+    import urllib.parse
+
+    url = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd"
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0 Safari/537.36"),
+        "Referer": "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    frames = []
+    for mkt, mkt_id in (("KOSPI", "STK"), ("KOSDAQ", "KSQ")):
+        payload = {
+            "bld": "dbms/MDC/STAT/standard/MDCSTAT01901",
+            "mktId": mkt_id,
+            "share": "1",
+            "csvxls_isNo": "false",
+        }
+        data = urllib.parse.urlencode(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = json.loads(r.read().decode("utf-8", errors="replace"))
+
+        rows = body.get("OutBlock_1") or body.get("output") or []
+        if not rows:
+            raise RuntimeError(f"KRX 오픈 조회에서 {mkt} 데이터를 받지 못했습니다.")
+
+        code_key = next((k for k in ("ISU_SRT_CD", "short_code", "ISU_CD") if k in rows[0]), None)
+        name_key = next((k for k in ("ISU_ABBRV", "isu_abbrv", "ISU_NM") if k in rows[0]), None)
+        if not code_key or not name_key:
+            raise RuntimeError(f"KRX 오픈 조회 응답 형식이 예상과 다릅니다: {list(rows[0].keys())[:10]}")
+
+        out = pd.DataFrame({
+            "code": [str(r.get(code_key, "")).zfill(6) for r in rows],
+            "name": [str(r.get(name_key, "")) for r in rows],
+            "market": mkt,
+            "market_cap": pd.NA,   # 이 엔드포인트는 시가총액을 안 줌 — 표시용이라 문제없음
+        })
+        out = out[out["code"].str.match(r"^\d{6}$")]
+        out = out[~out["name"].str.contains("스팩|제[0-9]+호", na=False)]
+        frames.append(out)
+        print(f"[KRX] {mkt} {len(out):,}종목 (data.krx.co.kr 폴백, 시가총액은 미확보)")
+
+    return (pd.concat(frames, ignore_index=True)
+              .drop_duplicates("code")
+              .set_index("code"))
+
+
 def kr_listing() -> pd.DataFrame:
     """
     KOSPI/KOSDAQ 상장 종목 목록.
     반환: index=종목코드, columns=[name, market, market_cap]
 
-    순서: 최신 캐시(7일 이내) → FDR → pykrx 폴백 → 오래된 캐시라도 재사용.
-    상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막 두 단계까지 가더라도
-    스캔 자체가 무의미해지지는 않는다.
+    순서: 최신 캐시(7일 이내) → FDR → pykrx → KRX 오픈 조회 → 오래된 캐시.
+    2026-09-09에 FDR·pykrx가 같은 날 동시에 막힌 사고가 있어 세 번째
+    소스를 추가했다. 상장 종목은 하루에 몇 개 바뀌는 수준이라, 마지막
+    단계(오래된 캐시)까지 가더라도 스캔 자체가 무의미해지지는 않는다.
     """
     cache = os.path.join(CACHE_DIR, "kr_listing")
 
@@ -193,29 +252,28 @@ def kr_listing() -> pd.DataFrame:
     if age is not None and age < LISTING_MAX_AGE_DAYS:
         return _read(cache)
 
-    try:
-        listing = _listing_from_fdr()
-        _write(listing, cache)
-        return listing
-    except Exception as e:
-        print(f"[FDR] 종목 목록 조회 실패({str(e)[:120]}) → pykrx로 폴백합니다.")
-
-    try:
-        listing = _listing_from_pykrx()
-        _write(listing, cache)
-        return listing
-    except Exception as e:
-        print(f"[pykrx] 종목 목록 조회도 실패({str(e)[:120]})")
+    for label, fn in (
+        ("FDR", _listing_from_fdr),
+        ("pykrx", _listing_from_pykrx),
+        ("KRX 오픈 조회", _listing_from_krx_open_api),
+    ):
+        try:
+            listing = fn()
+            _write(listing, cache)
+            return listing
+        except Exception as e:
+            print(f"[{label}] 종목 목록 조회 실패({str(e)[:120]})"
+                  + ("" if label == "KRX 오픈 조회" else " → 다음 소스로 폴백합니다."))
 
     # 최후 수단: 기간이 지났어도 저장된 캐시가 있으면 그걸로 계속 간다.
     if _exists(cache):
         stale = age if age is not None else -1
-        print(f"[경고] 목록 조회가 모두 실패해 {stale:.1f}일 전 캐시를 재사용합니다. "
+        print(f"[경고] 세 소스 모두 실패해 {stale:.1f}일 전 캐시를 재사용합니다. "
               f"신규 상장·상장폐지가 반영되지 않았을 수 있습니다.")
         return _read(cache)
 
     raise RuntimeError(
-        "한국 종목 목록을 FDR과 pykrx 양쪽 모두에서 가져오지 못했고, "
+        "한국 종목 목록을 FDR·pykrx·KRX 오픈 조회 세 곳 모두에서 가져오지 못했고, "
         "재사용할 이전 캐시도 없습니다. 네트워크 상태를 확인해 주세요."
     )
 
