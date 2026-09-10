@@ -98,6 +98,12 @@ jobs:
           else
             echo "커밋된 종목 목록 캐시 없음 — 이번이 첫 성공 실행에서 새로 만들어집니다."
           fi
+          if ls cache/kr_krx_daily.* >/dev/null 2>&1; then
+            size=$(du -h cache/kr_krx_daily.* 2>/dev/null | head -1 | cut -f1)
+            echo "저장소에 커밋된 KRX 일별시세 캐시 발견 (${size})"
+          else
+            echo "커밋된 KRX 일별시세 캐시 없음 — 이번 실행에서 처음부터(약 280영업일) 채웁니다."
+          fi
 
       # 장전(AM) 세션은 데이터 기준일을 직전 영업일로 못박는다.
       # 이렇게 하면 실행이 몇 시에 시작되든, 스캔이 몇 시간 걸리든
@@ -106,7 +112,6 @@ jobs:
       - name: Run scan
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
         run: |
           EXTRA=""
           if [ "${{ steps.session.outputs.value }}" = "AM" ]; then
@@ -137,12 +142,19 @@ jobs:
       # cache/kr_listing.* 도 같은 이유로 함께 커밋한다. FDR과 pykrx가
       # 동시에 막히는 사고가 실제로 있었고(2026-09-09), 그때 목록 캐시가
       # 저장소에 없어 "예전 캐시라도 쓴다"는 마지막 방어선까지 무너졌다.
+      #
+      # cache/kr_krx_daily.* 는 KRX Open API 날짜별 조회(고속 경로)가
+      # 쌓아온 281영업일치 시세 캐시다. 이걸 커밋하지 않으면 러너가
+      # 새로 뜰 때마다 사라져, 매번 280여 일을 처음부터 다시 받게 된다
+      # (증분 수집의 장점이 사라짐). 파일이 상당히 크므로(수십 MB대)
+      # 저장소 용량이 부담되면 이 줄만 빼면 기존 FDR 방식으로 자동 폴백된다.
       - name: Commit history and listing cache
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add history/
           git add -f cache/kr_listing.parquet cache/kr_listing.pkl 2>/dev/null || true
+          git add -f cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "history/cache 변경 없음 — 커밋 생략"
           else
