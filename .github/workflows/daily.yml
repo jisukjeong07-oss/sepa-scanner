@@ -145,21 +145,48 @@ jobs:
       # 저장소에 없어 "예전 캐시라도 쓴다"는 마지막 방어선까지 무너졌다.
       #
       # cache/kr_krx_daily.* 는 KRX Open API 날짜별 조회(고속 경로)가
-      # 쌓아온 281영업일치 시세 캐시다. 이걸 커밋하지 않으면 러너가
-      # 새로 뜰 때마다 사라져, 매번 280여 일을 처음부터 다시 받게 된다
-      # (증분 수집의 장점이 사라짐). 파일이 상당히 크므로(수십 MB대)
-      # 저장소 용량이 부담되면 이 줄만 빼면 기존 FDR 방식으로 자동 폴백된다.
+      # 쌓아온 시세 캐시다. 이걸 커밋하지 않으면 러너가 새로 뜰 때마다
+      # 사라져, 매번 280여 일을 처음부터 다시 받게 된다(증분 수집의
+      # 장점이 사라짐). 파일이 상당히 크므로(수십 MB대) 저장소 용량이
+      # 부담되면 이 줄만 빼면 기존 FDR 방식으로 자동 폴백된다.
+      #
+      # [2026-09-11] 이전 버전은 `git add -f ... 2>/dev/null || true` 로
+      # 에러를 조용히 삼켰다. 그래서 cache/kr_krx_daily.* 가 한 번도
+      # 커밋되지 않았는데도(저장소에서 직접 확인됨) 아무 경고도 없이
+      # 넘어갔다. 원인을 특정하기 위해 진단 출력을 남기고 에러를
+      # 숨기지 않도록 고친다.
       - name: Commit history and listing cache
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "── cache/ 폴더 실제 상태 ──"
+          ls -la cache/ 2>&1 || echo "cache/ 디렉터리가 없습니다."
+
           git add history/
-          git add -f cache/kr_listing.parquet cache/kr_listing.pkl 2>/dev/null || true
-          git add -f cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl 2>/dev/null || true
+
+          for f in cache/kr_listing.parquet cache/kr_listing.pkl \
+                   cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl; do
+            if [ -f "$f" ]; then
+              if git add -f "$f"; then
+                echo "add 성공: $f ($(du -h "$f" | cut -f1))"
+              else
+                echo "::warning::add 실패: $f"
+              fi
+            else
+              echo "파일 없음(정상 — 이 실행에선 안 만들어졌을 수 있음): $f"
+            fi
+          done
+
+          echo "── git status (커밋 전) ──"
+          git status --short cache/ history/ | head -20
+
           if git diff --cached --quiet; then
             echo "history/cache 변경 없음 — 커밋 생략"
           else
             git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
+            echo "커밋된 파일 목록:"
+            git show --stat --format="" HEAD | grep -E "cache/|history/" | head -10
           fi
           # 스캔이 오래 걸리는 동안(한국 전종목이면 수십 분) 다른 곳(로컬 등)에서
           # history/ 에 파일을 올렸을 수 있다. 그걸 받아온 뒤에 매니페스트를
