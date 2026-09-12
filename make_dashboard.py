@@ -1199,13 +1199,14 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     else:
         basis_ref = scan_date
 
-    # ── 휴장일이면 해당 시장 데이터를 화면에서 숨긴다 ──────────
+    # ── 상단 상태 점(●) 용 — "오늘(표시일)" 기준 실제 개장 여부 ──
+    # 이건 데이터를 숨기는 데 쓰지 않는다. 장전(AM) 스캔은 표시일(오늘)과
+    # 실제 데이터 기준일(직전 영업일)이 다른데, 예전엔 이 값으로 데이터를
+    # 통째로 숨겨서 "토요일에 열어보면 금요일 데이터인데도 0종목"이 되는
+    # 버그가 있었다. 이제 아래에서 실제 데이터 기준일을 계산해 정확한
+    # 날짜를 라벨로 보여주므로, 데이터 자체를 숨길 이유가 없다.
     kr_stat = mc.kr_status(date_str)
     us_stat = mc.us_status(date_str)
-    if not kr_stat["open"] and "market" in df.columns:
-        df = df[df["market"] != "KR"]
-    if not us_stat["open"] and "market" in df.columns:
-        df = df[df["market"] != "US"]
 
     # 화면 상단에 "이 데이터가 정확히 어느 시장의 언제 종가인지"를 표시한다.
     # 각 시장이 실제로 열려 있던 가장 최근 날짜를 기준으로 계산하므로,
