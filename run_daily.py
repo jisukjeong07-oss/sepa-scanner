@@ -145,8 +145,12 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
 
     # 산출물 (파일명에 세션이 붙어 장전/장마감/소급 기록이 각각 남는다)
     pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session)
+    # data_as_of=scan_stamp: 파일명은 오늘(stamp)로 맞춰도, 대시보드 상단에는
+    # 실제 가격 데이터의 기준일을 정확히 보여줘야 한다. 장전 스캔에서 이 둘이
+    # 갈라지는 게 "몇 일 종가인지 헷갈린다"는 혼선의 원인이었다.
     html_path = make_dashboard.build(csv_path, open_browser=open_browser,
-                                     hist_dir=make_dashboard.HIST_DIR, session=session)
+                                     hist_dir=make_dashboard.HIST_DIR, session=session,
+                                     data_as_of=scan_stamp)
 
     print(f"\n완료 [{session}] 대상일자={stamp}")
     if as_of:

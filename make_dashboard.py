@@ -16,6 +16,7 @@ import json
 import argparse
 import datetime as dt
 import webbrowser
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -27,6 +28,43 @@ import strategy as strat
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(BASE, "output")
 HIST_DIR = os.path.join(BASE, "history")   # 저장소에 커밋되어 영구 보관되는 폴더
+
+_WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def _last_open_date(status_fn, ref_date: dt.date, max_back: int = 10) -> dt.date:
+    """
+    ref_date 기준으로 그 시장이 실제로 열려 있던 가장 최근 날짜를 찾는다.
+    장전(AM) 스캔은 데이터가 --data-date 로 고정된 '직전 영업일' 종가인데,
+    그 직전 영업일이 한쪽 시장에만 휴장일(예: 미국 공휴일)이었을 수 있다.
+    그 경우 실제로 화면에 반영된 종가는 그보다 더 이전 날짜의 것이므로,
+    "언제 종가인지"를 정확히 보여주려면 이렇게 거슬러 올라가야 한다.
+    """
+    d = ref_date
+    for _ in range(max_back):
+        if status_fn(d.strftime("%Y-%m-%d"))["open"]:
+            return d
+        d -= dt.timedelta(days=1)
+    return ref_date   # 열린 날을 못 찾으면 기준일 그대로 반환(표시만 부정확, 죽지는 않음)
+
+
+def _market_basis_labels(kr_close: dt.date, us_close: dt.date) -> tuple:
+    """
+    한국·미국 각 시장의 실제 종가 기준 시각을, 현지 시각과 KST 둘 다 보여주는
+    문자열로 만든다. 미국 쪽은 zoneinfo로 실제 타임존 변환을 하므로 서머타임
+    전환 시기에도 자동으로 정확한 KST 시각이 나온다(수작업 보정 불필요).
+    KRX는 정규장이 항상 15:30 KST에 끝난다(조기폐장일은 드물어 고려하지 않음).
+    """
+    kr_wd = _WEEKDAY_KR[kr_close.weekday()]
+    kr_label = f"한국 {kr_close:%Y-%m-%d}({kr_wd}) 15:30 KST 종가"
+
+    us_wd = _WEEKDAY_KR[us_close.weekday()]
+    us_close_ny = dt.datetime.combine(us_close, dt.time(16, 0), tzinfo=ZoneInfo("America/New_York"))
+    us_close_kst = us_close_ny.astimezone(ZoneInfo("Asia/Seoul"))
+    us_label = (f"미국 {us_close:%Y-%m-%d}({us_wd}) 16:00 현지 종가 "
+               f"→ KST {us_close_kst:%Y-%m-%d %H:%M}")
+
+    return kr_label, us_label
 
 # 트렌드템플릿 8조건: (CSV 컬럼명, 화면 표기)
 CONDITIONS = [
@@ -120,6 +158,14 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .sub{color:var(--ink-2);font-size:13px;margin-top:4px}
 .hrow{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap}
 .hact{display:flex;gap:8px;align-items:center}
+.basis-row{margin-top:6px;text-align:right;font-size:11px;color:var(--muted,#8A8F98);
+  font-variant-numeric:tabular-nums}
+.basis-item{white-space:nowrap}
+.basis-sep{margin:0 8px;opacity:.5}
+@media (max-width:640px){
+  .basis-row{text-align:left;font-size:10px;line-height:1.6}
+  .basis-sep{display:block;margin:0;opacity:0}
+}
 .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
      padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{opacity:.88}
@@ -408,6 +454,11 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       <a id="manualRun" class="btn btn-outline" href="__ACTIONS_URL__" target="_blank" rel="noopener">수동 조회</a>
       <button id="pdf" class="btn">PDF로 저장</button>
     </div>
+  </div>
+  <div class="basis-row">
+    <span class="basis-item">__KR_BASIS__</span>
+    <span class="basis-sep">·</span>
+    <span class="basis-item">__US_BASIS__</span>
   </div>
 </header>
 
@@ -1104,7 +1155,14 @@ def _day_list(out_dir: str, current_file: str) -> list:
 def build(csv_path: str, out_path: str = None, open_browser: bool = True,
          hist_dir: str = None, generate_strategy: bool = True,
          session: str = "MANUAL", index_snapshot: list = None,
-         risk_signals: list = None) -> str:
+         risk_signals: list = None, data_as_of: str = None) -> str:
+    """
+    data_as_of: 'YYYYMMDD'. 실제 가격 데이터의 기준일(장전 스캔이면 --data-date
+    로 고정한 직전 영업일). run_daily.py가 CSV 파일명을 오늘 날짜로 맞추기
+    위해 사본을 만들 때, 원래 데이터 기준일이 파일명에서는 사라진다.
+    이 값을 명시적으로 넘기지 않으면 파일명에서 유추한 날짜를 쓰는데,
+    장전 스캔에서는 그 날짜가 실제 데이터 기준일과 하루 이상 어긋날 수 있다.
+    """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(
             f"스캔 결과 파일이 없습니다: {csv_path}\n"
@@ -1130,6 +1188,17 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     sess_kr = {"AM": "장전", "PM": "장마감", "MANUAL": "수동 조회", "HIST": "소급 조회"}[session]
     shown_date = scan_date.strftime("%Y년 %m월 %d일") + f" · {sess_kr}"
 
+    # ── 실제 데이터 기준일 (표시용 날짜와는 별개) ──────────────
+    # data_as_of가 주어지면 그걸 신뢰하고, 없으면 파일명에서 유추한
+    # scan_date를 그대로 쓴다(기존 동작과 동일, 하위 호환).
+    if data_as_of:
+        try:
+            basis_ref = dt.datetime.strptime(data_as_of, "%Y%m%d").date()
+        except ValueError:
+            basis_ref = scan_date
+    else:
+        basis_ref = scan_date
+
     # ── 휴장일이면 해당 시장 데이터를 화면에서 숨긴다 ──────────
     kr_stat = mc.kr_status(date_str)
     us_stat = mc.us_status(date_str)
@@ -1137,6 +1206,13 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         df = df[df["market"] != "KR"]
     if not us_stat["open"] and "market" in df.columns:
         df = df[df["market"] != "US"]
+
+    # 화면 상단에 "이 데이터가 정확히 어느 시장의 언제 종가인지"를 표시한다.
+    # 각 시장이 실제로 열려 있던 가장 최근 날짜를 기준으로 계산하므로,
+    # 한쪽만 휴장이었던 날(예: 미국 노동절)에도 정확한 날짜가 나온다.
+    kr_basis_date = _last_open_date(mc.kr_status, basis_ref)
+    us_basis_date = _last_open_date(mc.us_status, basis_ref)
+    kr_basis_label, us_basis_label = _market_basis_labels(kr_basis_date, us_basis_date)
 
     # ── 초저가 종목 제외 (미국 $1 미만, 한국 1,000원 미만) ──────
     # 참고: sepa_scanner.py의 스캔 단계에도 더 엄격한 하한(MIN_PRICE_US=10,
@@ -1177,6 +1253,8 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__TOTAL__", f"{len(df):,}")
             .replace("__KRN__", f"{int((df.get('market') == 'KR').sum()):,}")
             .replace("__USN__", f"{int((df.get('market') == 'US').sum()):,}")
+            .replace("__KR_BASIS__", kr_basis_label)
+            .replace("__US_BASIS__", us_basis_label)
             .replace("__KR_DOT__", _dot(kr_stat["open"]))
             .replace("__US_DOT__", _dot(us_stat["open"]))
             .replace("__KR_LABEL__", kr_stat["label"])
