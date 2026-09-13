@@ -566,7 +566,8 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     # 전체 유니버스(수천 종목)에 다 돌리면 느려지고, 애초에 8조건도 다 못
     # 채운 종목은 VCP를 볼 이유가 없다.
     vcp_cols = ["pivot_price", "stop_price", "pct_from_pivot", "risk_pct",
-                "contraction_count", "is_tightening", "vol_dryup", "vcp_status"]
+                "contraction_count", "is_tightening", "vol_dryup", "vcp_status",
+                "vol_ratio", "vol_ratio_label"]
     for c in vcp_cols:
         result[c] = None
     try:

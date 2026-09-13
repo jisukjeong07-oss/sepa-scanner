@@ -123,6 +123,8 @@ def _rows(df: pd.DataFrame) -> list:
             "tight": (None if pd.isna(r.get("is_tightening")) else bool(r.get("is_tightening"))),
             "dryup": (None if pd.isna(r.get("vol_dryup")) else bool(r.get("vol_dryup"))),
             "vcp": (str(r.get("vcp_status")) if pd.notna(r.get("vcp_status")) else None),
+            "volRatio": _f(r.get("vol_ratio")),
+            "volRatioLabel": (str(r.get("vol_ratio_label")) if pd.notna(r.get("vol_ratio_label")) else None),
         })
     return out
 
@@ -189,6 +191,12 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .macro{margin-bottom:20px}
 .macro-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
   font-weight:700;margin-bottom:8px}
+.macro-h-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.macro-h-row .macro-h{margin-bottom:0}
+.macro-collapse-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
+  border-radius:6px;padding:4px 12px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.macro-collapse-btn:hover{background:#F2F5F8;color:var(--ink)}
+#macroCollapseBody.collapsed{display:none}
 .idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .idx-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
 .idx-card .nm{font-size:11.5px;color:var(--ink-2)}
@@ -262,6 +270,10 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
 .seg button+button{border-left:1px solid var(--line)}
 input[type=search]{border:1px solid var(--line);border-radius:7px;padding:7px 11px;
   font-size:13px;font-family:inherit;min-width:150px;background:var(--surface);color:var(--ink)}
+.vcp-filter{border:1px solid var(--line);border-radius:7px;padding:7px 11px;
+  font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);cursor:pointer}
+.filtered-count{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--ink-2);
+  white-space:nowrap}
 label.rs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
 input[type=range]{width:120px;accent-color:var(--up)}
 button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--up);outline-offset:2px}
@@ -300,6 +312,12 @@ tbody tr.sel{background:#EEF3F8}
 .vcp-dev{background:#F0F2F5;color:var(--ink-2)}
 .vcp-ext{background:#fdf0e0;color:#b06a00}
 .vcp-sub{font-size:9.5px;color:var(--muted);margin-top:1px}
+
+/* 돌파일 거래량 비율 */
+.vr-badge{font-size:11px;font-weight:700;white-space:nowrap}
+.vr-surge{color:#1a7f37}
+.vr-normal{color:var(--ink-2)}
+.vr-low{color:#c0343b}
 
 /* 관심종목 별 */
 .star{display:inline-block;width:20px;text-align:center;cursor:pointer;
@@ -522,15 +540,20 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 
 <section class="macro">
   <div class="macro-idx">
-    <div class="macro-h">매크로 지표</div>
-    <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
-    <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
-  </div>
-</section>
+    <div class="macro-h-row">
+      <div class="macro-h">매크로 지표</div>
+      <button id="macroCollapseBtn" class="macro-collapse-btn" aria-expanded="true">닫기</button>
+    </div>
+    <div id="macroCollapseBody">
+      <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
+      <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
 
-<section class="macro-breadth" id="breadthSection" hidden>
-  <div class="macro-h">시장 폭</div>
-  <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
+      <section class="macro-breadth" id="breadthSection" hidden>
+        <div class="macro-h" style="margin-top:16px">시장 폭</div>
+        <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
+      </section>
+    </div>
+  </div>
 </section>
 
 <header>
@@ -594,7 +617,15 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   </div>
   <label class="rs">RS <input type="range" id="rs" min="0" max="99" value="0">
     <span class="num" id="rsv">0</span> 이상</label>
+  <select id="vcpFilter" aria-label="VCP 상태 필터" class="vcp-filter">
+    <option value="">VCP 전체</option>
+    <option value="entry_ready">진입가능</option>
+    <option value="developing">형성중</option>
+    <option value="extended">확장(과열)</option>
+    <option value="no_pattern">패턴없음</option>
+  </select>
   <input type="search" id="q" placeholder="종목 검색" aria-label="종목 검색">
+  <span id="filteredCount" class="filtered-count" aria-live="polite"></span>
 </div>
 
 <div id="favSync" class="fav-sync" hidden>
@@ -700,6 +731,18 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
         <li><span style="color:#b06a00;font-weight:700">확장(과열)</span> — 이미 피벗을 훌쩍 넘어 많이 올라간 경우 — 지금 사면 추격매수가 됨</li>
         <li>"거래량↓" 표시 — 가장 최근 눌림목 구간의 거래대금이 그 이전보다 줄었다는 뜻. 팔 사람이 줄었다는 신호로 봅니다.</li>
       </ul>
+
+      <h4>거래량비율 — "오늘, 평소보다 얼마나 많이 거래됐나"</h4>
+      <p>조용히 눌림목을 만들던 종목이 거래량 없이 슬쩍 오르면, 그건 진짜 돌파가 아니라 우연히 며칠 오른 것일 수 있습니다. 진짜 돌파는 보통 <b>거래량이 평소보다 확 늘면서</b> 일어납니다. 이 값은 오늘 거래대금이 평소(직전 20거래일 평균)보다 몇 배인지를 보여줍니다.</p>
+      <div class="term-box">
+        <b>계산 방법</b>: 거래량비율 = 오늘 거래대금 ÷ 직전 20거래일 평균 거래대금 (오늘 자신은 평균 계산에서 뺍니다)
+      </div>
+      <ul>
+        <li><span class="vr-badge vr-surge">1.8배 · 터짐</span> — 1.5배 이상. 거래량을 동반한 신뢰도 높은 움직임</li>
+        <li><span class="vr-badge vr-normal">1.2배 · 보통</span> — 1.0~1.5배. 평소와 크게 다르지 않음</li>
+        <li><span class="vr-badge vr-low">0.7배 · 부족</span> — 1.0배 미만. 거래량 없이 오른 것이라 가짜 돌파일 가능성에 주의</li>
+      </ul>
+      <p class="note">피벗대비%가 진입 범위 안에 있어도, 거래량비율이 "부족"이면 아직 확신하기 이릅니다. "진입가능" 뱃지와 거래량비율을 같이 보고 판단하는 게 안전합니다.</p>
 
       <div class="example">
         <h4>📐 직접 검증해보기 — 신한지주(055550) 실제 사례</h4>
@@ -828,7 +871,7 @@ const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만,
   idxHost.innerHTML = renderRow(row1, true) || '<div class="idx-card fail">매크로 지표 없음</div>';
   idxHost2.innerHTML = renderRow(row2, true);
 })();
-let view="pass", mkt="US", minRS=0, q="", sortKey="cap", sortDir=-1, open=null;
+let view="pass", mkt="US", minRS=0, q="", vcpFilter="", sortKey="cap", sortDir=-1, open=null;
 
 const COLS=[
   ["ticker","종목",""],
@@ -844,6 +887,7 @@ const COLS=[
   ["legs","수축","hide-s"],
   ["risk","손절리스크%","hide-s"],
   ["vcp","VCP","hide-s"],
+  ["volRatio","거래량비율","hide-s"],
 ];
 
 function capUnitLabel(m){ return m==="US" ? "* 시가총액($1B 기준)" : "* 시가총액(1천억원 기준)"; }
@@ -892,6 +936,15 @@ function vcpBadge(status, tightening, dryup){
   if(dryup===true) marks.push("거래량↓");
   const sub = marks.length ? `<div class="vcp-sub">${marks.join(" · ")}</div>` : "";
   return `<div class="vcp-cell"><span class="vcp-badge ${cls}">${VCP_LABEL[status]||status}</span>${sub}</div>`;
+}
+// 돌파일 거래량 비율 — 값과 등급을 같이 보여준다. 값만 있으면 "몇 배가
+// 터짐 기준인지" 매번 외워야 해서, 등급 라벨을 항상 옆에 붙인다.
+const VOL_RATIO_LABEL = { surge: "터짐", normal: "보통", low: "부족" };
+function volRatioCell(ratio, label){
+  if(ratio==null) return "–";
+  const cls = label==="surge" ? "vr-surge" : (label==="low" ? "vr-low" : "vr-normal");
+  const txt = VOL_RATIO_LABEL[label] || "";
+  return `<span class="vr-badge ${cls}" title="오늘 거래대금이 직전 20일 평균의 ${ratio}배 (1.5배 이상=터짐, 1.0배 미만=부족)">${ratio}배 · ${txt}</span>`;
 }
 function pivotCell(v, pivotPrice){
   if(v==null) return "–";
@@ -954,6 +1007,7 @@ function filtered(){
     if(view==="fav" && !FAVS.has(favKey(d))) return false;   // 관심: 조건과 무관하게 찜한 것 전부
     if(d.market!==mkt) return false;
     if(d.rs!=null && d.rs<minRS) return false;
+    if(vcpFilter && d.vcp!==vcpFilter) return false;
     if(q){
       const s=(d.ticker+" "+d.name).toLowerCase();
       if(!s.includes(q.toLowerCase())) return false;
@@ -974,6 +1028,11 @@ function render(){
   updateStats();
   const rows=filtered();
   document.getElementById("shown").textContent=rows.length;
+  // 필터 줄 오른쪽 끝 — 지금 걸린 조건(구분·시장·RS·VCP·검색어) 전부를
+  // 반영한 결과 개수를 바로 옆에서 보여준다. 위 통계 요약(shown)과 같은
+  // 값이지만, 필터를 만지는 그 자리에서 바로 확인되게 하기 위함이다.
+  const cntEl = document.getElementById("filteredCount");
+  if(cntEl) cntEl.textContent = `${rows.length.toLocaleString()}개 종목`;
   const host=document.getElementById("host");
   document.getElementById("favSync").hidden = (view!=="fav");
 
@@ -1023,7 +1082,8 @@ function render(){
       <td class="num hide-s">${pivotCell(d.pivot, d.pivotPrice)}</td>
       <td class="num hide-s">${d.legs==null?"–":d.legs+"개"}</td>
       <td class="num hide-s">${riskCell(d.risk, d.stopPrice)}</td>
-      <td class="hide-s">${vcpBadge(d.vcp, d.tight, d.dryup)}</td></tr>`;
+      <td class="hide-s">${vcpBadge(d.vcp, d.tight, d.dryup)}</td>
+      <td class="num hide-s">${volRatioCell(d.volRatio, d.volRatioLabel)}</td></tr>`;
   }
   host.innerHTML=h+"</tbody></table></div>";
 }
@@ -1209,6 +1269,23 @@ document.getElementById("chartClose").addEventListener("click",()=>{
   open=null; hideChart(); render();
 });
 
+// ── 매크로 지표·시장 폭 접기 ──────────────────────────────
+// [2026-09-14] 둘 다 "하루에 한 번 훑어보면 그만"인 정보라, 확인 후엔
+// 닫기 버튼 하나로 두 섹션(매크로 지표 + 시장 폭)을 한꺼번에 접는다.
+// 시장 폭은 매크로 지표 안에 중첩된 구조라, 부모(macroCollapseBody)만
+// 접으면 자동으로 같이 접힌다 — 시장 폭 자체의 표시 여부(hidden)는
+// 건드리지 않으므로 다시 펼쳤을 때 원래 상태 그대로 돌아온다.
+(function(){
+  const btn = document.getElementById("macroCollapseBtn");
+  const body = document.getElementById("macroCollapseBody");
+  if(!btn || !body) return;
+  btn.addEventListener("click", () => {
+    const collapsed = body.classList.toggle("collapsed");
+    btn.textContent = collapsed ? "펼치기" : "닫기";
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  });
+})();
+
 // ── 필터링 기준 팝업 ──────────────────────────────────────
 (function(){
   const btn = document.getElementById("filterInfoBtn");
@@ -1298,6 +1375,7 @@ document.getElementById("rs").addEventListener("input",e=>{
   render();
 });
 document.getElementById("q").addEventListener("input",e=>{q=e.target.value;render();});
+document.getElementById("vcpFilter").addEventListener("change",e=>{vcpFilter=e.target.value;render();});
 
 // PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
 document.getElementById("pdf").addEventListener("click",()=>window.print());

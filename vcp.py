@@ -28,6 +28,13 @@ ENTRY_PCT_FROM_PIVOT = (-3.0, 2.0)   # 이 범위면 '진입 가능' 후보
 ENTRY_MAX_RISK_PCT = 10.0            # 손절까지 리스크가 이 이내여야 '진입 가능'
 ENTRY_BUFFER_PCT = 1.0               # 피벗 위 몇 % 지점을 진입가로 볼지
 
+# [2026-09-14] 돌파일 거래량 비율 — "오늘 거래대금이 평소보다 얼마나
+# 터졌는가". 좁아지던 눌림목을 거래량 없이 뚫으면 가짜 돌파일 확률이
+# 높다는 게 VCP의 핵심 전제라, 피벗·리스크만큼 중요한 보조 지표다.
+VOL_RATIO_WINDOW = 20                # 비교 기준(평소 거래대금)의 산정 기간
+VOL_RATIO_SURGE = 1.5                # 이 배 이상이면 "터짐"
+VOL_RATIO_LOW = 1.0                  # 이 배 미만이면 "부족"
+
 
 def _true_range(high: np.ndarray, low: np.ndarray, close: np.ndarray) -> np.ndarray:
     prev_close = np.empty_like(close)
@@ -152,6 +159,23 @@ def analyze_ticker(high: np.ndarray, low: np.ndarray, close: np.ndarray,
                 if stop_price < entry_price else None)
     pct_from_pivot = round((cur_close / pivot_price - 1) * 100, 2) if pivot_price else None
 
+    # 돌파일 거래량 비율 — 오늘 거래대금 ÷ 그 직전 20거래일 평균 거래대금.
+    # 오늘 자신을 기준(평균)에 포함시키면 자기 자신 때문에 비율이 흐려지므로
+    # 반드시 "오늘을 뺀" 직전 20일로 비교한다.
+    today_val = w_value[-1]
+    baseline_window = w_value[-1 - VOL_RATIO_WINDOW:-1]
+    baseline_vol = np.nanmean(baseline_window) if len(baseline_window) else np.nan
+    if baseline_vol and baseline_vol == baseline_vol and baseline_vol > 0:
+        vol_ratio = round(float(today_val / baseline_vol), 2)
+        if vol_ratio >= VOL_RATIO_SURGE:
+            vol_ratio_label = "surge"     # 거래량 터짐
+        elif vol_ratio < VOL_RATIO_LOW:
+            vol_ratio_label = "low"       # 거래량 부족
+        else:
+            vol_ratio_label = "normal"    # 보통
+    else:
+        vol_ratio, vol_ratio_label = None, None
+
     if contraction_count == 0:
         vcp_status = "no_pattern"
     elif pct_from_pivot is None:
@@ -176,6 +200,8 @@ def analyze_ticker(high: np.ndarray, low: np.ndarray, close: np.ndarray,
         "pivot_price": round(pivot_price, 2),
         "stop_price": round(stop_price, 2),
         "pct_from_pivot": pct_from_pivot,
+        "vol_ratio": vol_ratio,
+        "vol_ratio_label": vol_ratio_label,
         "risk_pct": risk_pct,
         "contraction_count": contraction_count,
         "is_tightening": is_tightening,
@@ -218,7 +244,8 @@ def add_vcp_columns(result_df: pd.DataFrame, close: pd.DataFrame, high: pd.DataF
     파일이 지저분해지고 다른 도구로 열어보기도 불편해진다.
     """
     cols = ["pivot_price", "stop_price", "pct_from_pivot", "risk_pct",
-            "contraction_count", "is_tightening", "vol_dryup", "vcp_status"]
+            "contraction_count", "is_tightening", "vol_dryup", "vcp_status",
+            "vol_ratio", "vol_ratio_label"]
 
     if high is None or low is None:
         print("[VCP] 고가·저가가 없어 VCP 계산을 건너뜁니다.")
