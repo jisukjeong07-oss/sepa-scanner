@@ -15,6 +15,7 @@ Mark Minervini 트렌드템플릿 8조건 + RS Rating 정량 스캔
 
 import os
 import time
+import json
 import argparse
 import datetime as dt
 import warnings
@@ -421,7 +422,7 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
     else:
         kwargs = {"period": period}
 
-    closes, volumes = [], []
+    closes, volumes, highs, lows = [], [], [], []
     for i in range(0, len(tickers), 100):
         batch = tickers[i:i + 100]
         print(f"[US] {i+1}~{i+len(batch)} / {len(tickers)} 다운로드...")
@@ -431,13 +432,22 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
             continue
         closes.append(df["Close"])
         volumes.append(df["Volume"])
+        if "High" in df.columns.get_level_values(0):
+            highs.append(df["High"])
+            lows.append(df["Low"])
         time.sleep(1.0)
 
     close = pd.concat(closes, axis=1)
     volume = pd.concat(volumes, axis=1)
     value = close * volume          # 거래대금(달러)
     meta = pd.DataFrame({"market": "US"}, index=close.columns)
-    return {"close": close.sort_index(), "value": value.sort_index(), "meta": meta}
+    out = {"close": close.sort_index(), "value": value.sort_index(), "meta": meta}
+    # [2026-09-13] 52주 신고가/VCP 계산용 고가·저가. yfinance가 어차피
+    # 같이 내려주는 값이라 추가 호출 비용이 없다.
+    if highs:
+        out["high"] = pd.concat(highs, axis=1).sort_index().reindex(columns=close.columns)
+        out["low"] = pd.concat(lows, axis=1).sort_index().reindex(columns=close.columns)
+    return out
 
 
 # ═════════════════════════════════════════════════════════════
@@ -469,12 +479,18 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
            min_turnover: float = None) -> pd.DataFrame:
     """min_turnover: 20일 평균 거래대금 하한. None이면 시장별 기본 상수를 쓴다."""
     close, value = data["close"], data["value"]
+    high, low = data.get("high"), data.get("low")
 
     # 데이터가 부족한 종목(신규상장 등) 제외
     valid = close.notna().sum() >= 252
     close = close.loc[:, valid]
     value = value.loc[:, close.columns]
     close = close.ffill()
+    if high is not None:
+        high = high.loc[:, close.columns].ffill()
+        low = low.loc[:, close.columns].ffill()
+    else:
+        print(f"[{market_tag}] 주의: 고가·저가가 없어 52주 고점·저점을 종가로 근사합니다.")
 
     if len(close) < 252:
         raise ValueError(f"데이터 부족: {len(close)}일치만 확보됨 (252일 필요)")
@@ -482,8 +498,12 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     ma50 = close.rolling(50).mean()
     ma150 = close.rolling(150).mean()
     ma200 = close.rolling(200).mean()
-    hi52 = close.rolling(252).max()
-    lo52 = close.rolling(252).min()
+    # [2026-09-13] 52주 고점·저점은 실제 장중 고가·저가 기준(원래 정의).
+    # market_breadth.py와 같은 방식으로 통일했다 — 없으면 종가로 근사.
+    hi_src = high if high is not None else close
+    lo_src = low if low is not None else close
+    hi52 = hi_src.rolling(252).max()
+    lo52 = lo_src.rolling(252).min()
 
     px = close.iloc[-1]
     m50, m150, m200 = ma50.iloc[-1], ma150.iloc[-1], ma200.iloc[-1]
@@ -541,6 +561,31 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
         "PASS": passed,
     })
     result = pd.concat([result, conds], axis=1)
+
+    # [2026-09-13] VCP(변동성 수축 패턴) 분석 — 통과(8)·관찰(7)만 계산한다.
+    # 전체 유니버스(수천 종목)에 다 돌리면 느려지고, 애초에 8조건도 다 못
+    # 채운 종목은 VCP를 볼 이유가 없다.
+    vcp_cols = ["pivot_price", "stop_price", "pct_from_pivot", "risk_pct",
+                "contraction_count", "is_tightening", "vol_dryup", "vcp_status"]
+    for c in vcp_cols:
+        result[c] = None
+    try:
+        import vcp as _vcp
+        candidates = result.index[result["conditions_met"] >= 7]
+        chart_store = {}
+        if len(candidates):
+            sub = _vcp.add_vcp_columns(result.loc[candidates].copy(), close, high, low,
+                                        value, chart_store=chart_store)
+            for c in vcp_cols:
+                result.loc[sub.index, c] = sub[c]
+        # DataFrame.attrs는 같은 파이썬 프로세스 안에서만 살아있는 메타데이터다
+        # (CSV로 저장하면 사라진다). run()이 이걸 모아서 별도 JSON으로 쓴다 —
+        # 종목당 130일치 가격을 CSV 컬럼에 욱여넣으면 파일이 무거워지고
+        # 다른 도구로 열어보기도 불편해지기 때문이다.
+        result.attrs["vcp_charts"] = chart_store
+    except Exception as e:
+        print(f"[{market_tag}] VCP 분석 건너뜀: {str(e)[:150]}")
+
     return result.sort_values(["PASS", "RS"], ascending=[False, False])
 
 
@@ -606,18 +651,35 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                     from kr_data_fdr import fetch_kr_krx_open
                     data = fetch_kr_krx_open(start, end)
                     print("[KR] KRX Open API 날짜별 조회로 시세 수집 완료 (고속 경로)")
+
+                    # 정리매매(상장폐지 확정 후 상하한가 해제 구간) 의심 종목은
+                    # 가격 자체가 붕괴 중이라 신뢰할 수 없다. 8조건 스캔에서
+                    # 자연스레 탈락하긴 하지만, RS 산출(유니버스 내 백분위) 등
+                    # 다른 종목 계산에도 영향을 주므로 여기서 미리 제외한다.
+                    suspects = [t for t in data.get("delisting_suspects", [])
+                                if t in data["close"].columns]
+                    if suspects:
+                        print(f"[KR] 정리매매 의심 {len(suspects)}종목 유니버스에서 제외: "
+                              f"{', '.join(suspects)}")
+                        data["close"] = data["close"].drop(columns=suspects)
+                        data["value"] = data["value"].drop(columns=suspects)
+                        data["meta"] = data["meta"].drop(index=suspects, errors="ignore")
                 except Exception as e:
                     print(f"[KR] KRX Open API 고속 경로 실패({str(e)[:150]}) "
                           f"→ 기존 FDR 방식(종목별 조회)으로 폴백합니다.")
                     data = fetch_kr_fdr(start, end)
                 r = screen(data, "KR", min_rs, min_turnover_kr)
-                r.insert(0, "name", pd.Series(fdr_names(r.index[r["PASS"]])))
+                # [2026-09-13] 예전엔 PASS(8조건 통과) 종목만 이름을 조회해서
+                # 관찰·전체 탭의 종목명이 NaN으로 떴다. fdr_names()는
+                # kr_listing() 캐시 하나로 이름을 붙이는 로컬 조회라 종목
+                # 수를 늘려도 네트워크 호출이 늘지 않는다 — 전체로 넓혀도 비용 없음.
+                r.insert(0, "name", pd.Series(fdr_names(r.index)))
                 # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
                 r["market_cap"] = pd.Series(kr_market_caps(r.index))
             else:
                 data = fetch_kr(start, end)
                 r = screen(data, "KR", min_rs, min_turnover_kr)
-                r.insert(0, "name", pd.Series(kr_names(r.index[r["PASS"]])))
+                r.insert(0, "name", pd.Series(kr_names(r.index)))
                 r["market_cap"] = None
             results.append(r)
         except Exception as e:
@@ -665,6 +727,24 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
     out = pd.concat(results)
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{end}.csv")
     out.to_csv(csv_path, encoding="utf-8-sig")
+
+    # VCP 미니 차트용 데이터 — CSV와는 별도 파일로 저장한다(종목당 130일치
+    # 가격이 들어가 CSV에 같이 실으면 무거워지고 다른 도구로 보기도 불편해짐).
+    # 파일명 규칙을 sepa_scan_{stamp}.csv 와 맞춰서, 나중에 make_dashboard.py가
+    # csv_path만 보고 같은 폴더의 짝 파일을 자동으로 찾을 수 있게 한다.
+    charts = {}
+    for r in results:
+        try:
+            charts.update(r.attrs.get("vcp_charts", {}))
+        except Exception:
+            pass
+    chart_path = os.path.join(OUT_DIR, f"sepa_vcp_charts_{end}.json")
+    try:
+        with open(chart_path, "w", encoding="utf-8") as f:
+            json.dump(charts, f, ensure_ascii=False)
+        print(f"[VCP] 미니 차트 데이터 {len(charts)}종목 저장: {os.path.basename(chart_path)}")
+    except Exception as e:
+        print(f"[VCP] 미니 차트 데이터 저장 실패(화면에서 차트는 안 뜨지만 표는 정상): {e}")
 
     passed = out[out["PASS"]]
     print(f"\n{'='*60}")

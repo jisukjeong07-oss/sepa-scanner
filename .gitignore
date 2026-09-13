@@ -1,0 +1,6 @@
+.env
+.DS_Store
+__pycache__/
+*.pyc
+output/
+cache/kr_krx_daily_raw_backup.parquet

@@ -219,7 +219,7 @@ SESSION_LABEL = {"AM": "장전 (한국 개장 전)", "PM": "장마감 후", "MAN
 
 
 def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
-         session: str = None) -> str:
+         session: str = None, breadth_summary: str = None) -> str:
     df = pd.read_csv(csv_path, index_col=0, encoding="utf-8-sig")
     # 한국 종목코드는 앞자리 0이 CSV에서 유실되므로 6자리로 복원 (숫자형 코드만)
     df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
@@ -256,6 +256,10 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
         f"<font name='{FB}'>{len(passed)}종목</font>이 8조건을 모두 충족했습니다. "
         f"8개 중 7개를 충족한 관찰 종목은 {len(near)}종목입니다.", S["body"]))
     story.append(Spacer(1, 6))
+
+    if breadth_summary:
+        story.append(Paragraph(breadth_summary, S["body"]))
+        story.append(Spacer(1, 6))
 
     for tag, label in [("KR", "한국 (KOSPI/KOSDAQ)"), ("US", "미국")]:
         scanned = int((df["market"] == tag).sum())

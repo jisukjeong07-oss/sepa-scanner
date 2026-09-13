@@ -113,6 +113,16 @@ def _rows(df: pd.DataFrame) -> list:
             "met": int(r.get("conditions_met", 0) or 0),
             "pass": bool(r.get("PASS", False)),
             "fails": fails,
+            # [2026-09-13] VCP(변동성 수축 패턴) — 통과·관찰(7조건 이상)만
+            # 값이 있고, 나머지는 None. sepa_scanner.screen()에서 계산.
+            "pivot": _f(r.get("pct_from_pivot")),
+            "risk": _f(r.get("risk_pct")),
+            "pivotPrice": _f(r.get("pivot_price")),
+            "stopPrice": _f(r.get("stop_price")),
+            "legs": (int(r["contraction_count"]) if pd.notna(r.get("contraction_count")) else None),
+            "tight": (None if pd.isna(r.get("is_tightening")) else bool(r.get("is_tightening"))),
+            "dryup": (None if pd.isna(r.get("vol_dryup")) else bool(r.get("vol_dryup"))),
+            "vcp": (str(r.get("vcp_status")) if pd.notna(r.get("vcp_status")) else None),
         })
     return out
 
@@ -176,8 +186,7 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 #sessSeg button:disabled{opacity:.35;cursor:not-allowed}
 
 /* 시황 · 리스크 패널 (화면 최상단) */
-.macro{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:20px}
-@media (max-width:820px){.macro{grid-template-columns:1fr}}
+.macro{margin-bottom:20px}
 .macro-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
   font-weight:700;margin-bottom:8px}
 .idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
@@ -187,6 +196,13 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .idx-card .chg{font-size:12px;font-weight:700;margin-top:1px}
 .idx-card .chg.pos{color:var(--up)} .idx-card .chg.neg{color:var(--down)}
 .idx-card.fail{color:var(--muted)}
+.idx-card.warn{border-color:#e8b4b4;background:#fff8f8}
+.idx-card .sub{font-size:10.5px;color:var(--muted);margin-top:3px}
+.idx-card.compact{padding:8px 13px}
+.idx-card.compact .valrow{display:flex;align-items:baseline;gap:8px;margin-top:2px}
+.idx-card.compact .val{font-size:19px;margin-top:0}
+.idx-card.compact .chg{font-size:13.5px;margin-top:0}
+.macro-breadth{margin-bottom:20px}
 .risk-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .risk-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;
   padding:10px 12px;position:relative}
@@ -225,6 +241,8 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   .rail .dot.out{background:#8A8F98 !important}
   .rail .track{background:#D6DAE0 !important}
   .rail .peak{background:#1A1D23 !important}
+  th{background:#1B2A4A !important;color:#fff !important;
+     -webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 
 /* 요약 */
@@ -249,16 +267,22 @@ input[type=range]{width:120px;accent-color:var(--up)}
 button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--up);outline-offset:2px}
 
 /* 표 — 높이를 제한하고 내부에서만 스크롤, 헤더는 위에 고정 */
-.tbl-scroll{max-height:52vh;overflow-y:auto;background:var(--surface);
-  border:1px solid var(--line);border-radius:10px}
+.tbl-scroll{max-height:52vh;overflow-y:auto;overflow-x:auto;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;-webkit-overflow-scrolling:touch}
+.tbl-note{text-align:right;font-size:10.5px;color:#111;margin-bottom:4px}
 table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface)}
-th{font-size:11px;color:var(--muted);text-align:right;padding:11px 10px;
+/* VCP 컬럼이 추가돼 컬럼 수가 많아지면, 표를 화면 폭에 욱여넣어 자르지
+   말고 가로로 넓혀서 스크롤되게 한다 (min-width가 화면보다 크면 .tbl-scroll이
+   가로 스크롤바를 만든다). 라벨을 짧게 줄인 만큼 기준값도 낮췄다. */
+@media (min-width:821px){ table{min-width:980px} }
+th{font-size:13px;color:#fff;text-align:center;vertical-align:middle;
+   padding:9px 6px;line-height:1.3;
    border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;
-   font-weight:600;letter-spacing:.04em;user-select:none;
-   position:sticky;top:0;background:var(--surface);z-index:2}
-th:first-child,td:first-child{text-align:left;padding-left:12px}
-th[aria-sort]{color:var(--ink)}
-td{padding:10px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowrap}
+   font-weight:700;letter-spacing:.02em;user-select:none;
+   position:sticky;top:0;background:#1B2A4A;z-index:2}
+td:first-child{text-align:left;padding-left:8px;max-width:160px}
+th[aria-sort]{background:#12203D}
+td{padding:8px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowrap}
 tbody tr{cursor:pointer}
 tbody tr:hover{background:#F6F8FA}
 tbody tr.sel{background:#EEF3F8}
@@ -266,8 +290,16 @@ tbody tr.sel{background:#EEF3F8}
 .nm{font-size:11px;color:var(--muted);display:block;font-weight:400}
 .pos{color:var(--up)} .neg{color:var(--down)}
 .badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
-       background:#F0F2F5;color:var(--ink-2);margin-left:6px;font-weight:600;cursor:help}
+       background:#F0F2F5;color:var(--ink-2);margin-left:4px;font-weight:600;cursor:help}
 .badge.p{background:var(--up);color:#fff;cursor:default}
+
+/* VCP 뱃지 */
+.vcp-cell{line-height:1.3}
+.vcp-badge{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:4px;font-weight:700}
+.vcp-ready{background:var(--up);color:#fff}
+.vcp-dev{background:#F0F2F5;color:var(--ink-2)}
+.vcp-ext{background:#fdf0e0;color:#b06a00}
+.vcp-sub{font-size:9.5px;color:var(--muted);margin-top:1px}
 
 /* 관심종목 별 */
 .star{display:inline-block;width:20px;text-align:center;cursor:pointer;
@@ -293,6 +325,9 @@ tbody tr.sel{background:#EEF3F8}
 .chart-hint{font-size:11px;color:var(--muted);font-weight:400;margin-left:8px}
 .chart-box{height:460px}
 .chart-box iframe{border:0;width:100%;height:100%}
+.vcp-chart-box{height:280px;padding:8px}
+.vcp-chart-box svg{width:100%;height:100%;display:block}
+.vcp-wrap .chart-head{background:#FBFCFD}
 .btn-sm{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
   border-radius:6px;padding:5px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-sm:hover{background:#F2F5F8;color:var(--ink)}
@@ -317,14 +352,14 @@ tbody tr.sel{background:#EEF3F8}
 .ext-caut{color:#A96A0B;font-weight:700}
 
 /* 52주 고점 대비: 숫자 + 근접도 트랙 */
-.railwrap{display:flex;align-items:center;justify-content:flex-end;gap:9px}
-.railnum{font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:600;
-         white-space:nowrap;min-width:52px;text-align:right}
+.railwrap{display:flex;align-items:center;justify-content:flex-end;gap:5px}
+.railnum{font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;
+         white-space:nowrap;min-width:40px;text-align:right}
 .railnum.near{color:var(--up)}          /* 고점 3% 이내 = 돌파 임박 */
 .railnum.out{color:var(--muted)}        /* 조건7 미달 */
 
 /* 시그니처: 52주 고점 근접도 트랙 (조건7 = 고점 -25% 이내) */
-.rail{position:relative;width:96px;height:16px;margin-left:auto}
+.rail{position:relative;width:60px;height:16px;margin-left:auto}
 .rail .track{position:absolute;top:7px;left:0;right:0;height:2px;background:var(--rail)}
 .rail .zone{position:absolute;top:5px;right:0;width:100%;height:6px;
             background:linear-gradient(90deg,rgba(192,52,59,0) 0%,rgba(192,52,59,.16) 100%)}
@@ -344,8 +379,70 @@ tr.detail td{background:#F8FAFB;padding:14px 14px 16px;text-align:left;
        border:1px solid var(--line);border-radius:10px}
 footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
        border-top:1px solid var(--line);padding-top:14px}
+.footer-link-row{margin-top:10px;text-align:right}
+.filter-btn{background:#E8630C;border:0;color:#fff;font-size:12.5px;font-weight:700;
+  padding:9px 18px;border-radius:7px;cursor:pointer;letter-spacing:.01em}
+.filter-btn:hover{background:#CF5709}
 
-/* 시장 상태 배너 */
+/* 필터링 기준 팝업 */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,17,21,.5);
+  display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
+.modal-overlay[hidden]{display:none !important}
+.modal{background:#fff;border-radius:12px;max-width:680px;width:100%;
+  max-height:86vh;overflow:hidden;display:flex;flex-direction:column;
+  box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal-head{display:flex;justify-content:space-between;align-items:center;
+  padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal-head h2{font-size:16px;margin:0}
+.modal-head-btns{display:flex;gap:8px;align-items:center}
+.modal-body{padding:16px 20px 22px;overflow-y:auto;font-size:12.5px;
+  line-height:1.7;color:var(--ink-2)}
+.modal-body h3{font-size:13.5px;margin:20px 0 6px;color:var(--ink);
+  padding-top:14px;border-top:1px solid var(--line)}
+.modal-body h3:first-child{margin-top:0;padding-top:0;border-top:0}
+.modal-body h4{font-size:12.5px;margin:10px 0 4px;color:var(--ink)}
+.modal-body p{margin:0 0 6px}
+.modal-body ul,.modal-body ol{margin:4px 0 6px;padding-left:20px}
+.modal-body li{margin-bottom:3px}
+.modal-body .cond-list{padding-left:22px}
+.modal-body .note{background:var(--surface);border:1px solid var(--line);
+  border-radius:8px;padding:8px 10px;font-size:11.5px;color:var(--muted);margin-top:8px}
+.modal-body .term-box{background:#F7F9FB;border:1px solid var(--line);border-radius:8px;
+  padding:10px 12px;margin:6px 0 10px}
+.modal-body .term-box b{color:var(--ink)}
+.modal-body .formula{background:#EFF3F8;border-radius:6px;padding:6px 10px;
+  font-family:ui-monospace,Menlo,monospace;font-size:11.5px;margin:5px 0;
+  color:var(--ink);display:inline-block}
+.modal-body .example{background:#FFF8ED;border:1px solid #F0DDB8;border-radius:8px;
+  padding:12px 14px;margin:8px 0}
+.modal-body .example h4{margin-top:0;color:#8a5a00}
+.modal-body .example ol{padding-left:18px}
+.modal-body .example li{margin-bottom:6px}
+@media print{
+  body.printing-filter-info > *:not(#filterInfoOverlay){display:none !important}
+  body.printing-filter-info #filterInfoOverlay{position:static !important;
+    background:none !important;padding:0 !important;display:block !important}
+  body.printing-filter-info .modal{max-width:none !important;max-height:none !important;
+    box-shadow:none !important;border-radius:0}
+  body.printing-filter-info .modal-body{overflow:visible !important}
+  body.printing-filter-info #filterInfoClose,
+  body.printing-filter-info #filterInfoPdf{display:none !important}
+  /* 팝업 배경색·뱃지 색이 인쇄 시 사라지지 않게 강제로 살린다
+     (기본값은 인쇄할 때 배경색을 전부 지운다) */
+  body.printing-filter-info .modal-head,
+  body.printing-filter-info .modal-body,
+  body.printing-filter-info .modal-body *{
+    -webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+  /* 화면 그대로의 디자인을 유지하면서, 본문 글자는 최소 9pt를 보장한다 */
+  body.printing-filter-info .modal-body{font-size:9.5pt !important;line-height:1.6 !important}
+  body.printing-filter-info .modal-body h3{font-size:11.5pt !important}
+  body.printing-filter-info .modal-body h4{font-size:10pt !important}
+  body.printing-filter-info .modal-body .note,
+  body.printing-filter-info .modal-body .formula,
+  body.printing-filter-info .modal-body .term-box{font-size:9pt !important}
+  body.printing-filter-info .modal-head h2{font-size:13pt !important}
+}
+
 .mkt-status{display:flex;gap:18px;flex-wrap:wrap;align-items:center;
   background:var(--surface);border:1px solid var(--line);border-radius:10px;
   padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--ink-2)}
@@ -425,19 +522,21 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 
 <section class="macro">
   <div class="macro-idx">
-    <div class="macro-h">시황 개요</div>
-    <div id="idxCards" class="idx-grid"></div>
+    <div class="macro-h">매크로 지표</div>
+    <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
+    <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
   </div>
-  <div class="macro-risk">
-    <div class="macro-h">리스크 신호</div>
-    <div id="riskCards" class="risk-grid"></div>
-  </div>
+</section>
+
+<section class="macro-breadth" id="breadthSection" hidden>
+  <div class="macro-h">시장 폭</div>
+  <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
 </section>
 
 <header>
   <div class="hrow">
     <div>
-      <h1>SEPA 종목 후보</h1>
+      <h1>Momentum Watchlist</h1>
       <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)
         <button id="stratOpen" class="strat-open">매매전략</button>
       </div>
@@ -516,10 +615,19 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <section id="chartWrap" class="chart-wrap" hidden>
   <div class="chart-head">
     <div><span id="chartTitle"></span>
-      <span class="chart-hint">차트 안에서 기간·주봉 변경 가능</span></div>
+      <span class="chart-hint">차트 안에서 기간·주봉 변경 가능 (미국 종목 · TradingView)</span></div>
     <button id="chartClose" class="btn-sm">닫기</button>
   </div>
   <div id="chartBox" class="chart-box"></div>
+</section>
+
+<section id="vcpChartWrap" class="chart-wrap vcp-wrap" hidden>
+  <div class="chart-head">
+    <div><span id="vcpChartTitle"></span>
+      <span class="chart-hint">최근 약 6개월 · 초록 점선=피벗 · 빨강 점선=손절가 · 음영=조정 레그</span></div>
+    <button id="vcpChartClose" class="btn-sm">닫기</button>
+  </div>
+  <div id="vcpChartBox" class="vcp-chart-box"></div>
 </section>
 
 <footer>
@@ -527,7 +635,115 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니버스 안에서 백분위로 환산한 근사값입니다.
 이 화면은 SEPA 1단계(기술적 필터)만 담고 있어, 2단계 펀더멘털과 3단계 진입 시점은 직접 확인해야 합니다.
 투자 참고 자료이며 투자 권유가 아닙니다.
+<div class="footer-link-row"><button id="filterInfoBtn" class="filter-btn">필터링 기준 보기</button></div>
 </footer>
+</div>
+
+<div id="filterInfoOverlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="filterInfoTitle">
+    <div class="modal-head">
+      <h2 id="filterInfoTitle">필터링 기준 · 용어 설명</h2>
+      <div class="modal-head-btns">
+        <button id="filterInfoPdf" class="btn-sm">PDF 저장</button>
+        <button id="filterInfoClose" class="btn-sm">닫기</button>
+      </div>
+    </div>
+    <div class="modal-body">
+
+      <p>이 표는 "지금 사도 좋을 만큼 튼튼하고, 가격도 적당한 자리에 있는 종목"을 자동으로 걸러낸 목록입니다. 아래에서 표에 나오는 용어를 하나씩, 숫자 계산 방법까지 풀어서 설명합니다.</p>
+
+      <h3>1. RS (상대강도) — "다른 종목들과 비교해 얼마나 잘 올랐나"</h3>
+      <p>반 학생 100명을 최근 3개월·6개월·9개월·12개월 성적 순으로 줄 세운다고 생각해 보세요. RS 90은 "100명 중 상위 10등 안"이라는 뜻입니다. 스캔 대상 전체 종목(유니버스) 안에서 최근 수익률이 상위 몇 %인지를 0~99 숫자로 나타낸 겁니다.</p>
+      <div class="term-box">
+        <b>계산 방법</b>: 3개월·6개월·9개월·12개월 수익률에 각각 가중치를 줘서 하나의 점수로 합친 뒤, 그 점수를 전체 종목 중에서 몇 %에 해당하는지로 환산합니다. IBD(Investor's Business Daily)의 공식 RS와는 계산식이 다른 근사값입니다.
+      </div>
+
+      <h3>2. 통과 / 관찰 — "8가지 건강검진 항목"</h3>
+      <p>마크 미네르비니라는 투자자가 만든 "트렌드템플릿" 8개 조건으로 판정합니다. 사람으로 치면 8개 건강검진 항목을 전부 통과해야 "건강하다(통과)"고 보고, 7개만 통과하면 "거의 건강한데 하나 아쉽다(관찰)"고 보는 것과 같습니다.</p>
+      <ol class="cond-list">
+        <li>종가가 150일선·200일선 위 — 최근 5개월·9개월 평균 가격보다 지금이 더 비싸다</li>
+        <li>150일선이 200일선 위 — 중기 평균이 장기 평균보다 높다(교차 상승)</li>
+        <li>200일선이 최근 21영업일(약 1개월) 이상 계속 오르는 중</li>
+        <li>50일선이 150일선·200일선 위 (정배열) — 최근 한 달, 다섯 달, 아홉 달 평균이 순서대로 쌓여 있다</li>
+        <li>종가가 50일선 위 — 최근 한 달 평균보다도 지금이 비싸다</li>
+        <li>현재가가 52주 최저가보다 30% 이상 높다 — 바닥을 찍고 충분히 올라왔다</li>
+        <li>현재가가 52주 최고가에서 25% 이내 — 너무 많이 빠지지 않았다</li>
+        <li>RS 70 이상 — 위 1번에서 설명한 상대강도가 상위 30% 안</li>
+      </ol>
+
+      <h3>3. 전체 / 관심</h3>
+      <p><b>전체</b>는 8조건과 상관없이, 최소한의 가격·거래량 기준만 넘긴 모든 종목입니다. <b>관심</b>은 종목 왼쪽 별표(★)를 눌러 내가 직접 찜한 종목이고, 이 브라우저(이 컴퓨터)에만 저장됩니다.</p>
+
+      <h3>4. VCP(변동성 수축 패턴) — "스프링을 누를수록 더 세게 튀어 오른다"</h3>
+      <p>공을 손으로 누르면 눌린 만큼 튀어 오르죠. 주가도 비슷합니다. 한 번 오른 종목이 쉬었다(조정) 다시 오르기를 반복하는데, <b>쉬는 폭이 점점 좁아질수록</b> "이제 곧 크게 튈 준비가 됐다"고 봅니다. 이 좁아지는 패턴을 VCP라고 부릅니다.</p>
+
+      <h4>수축(레그 수)</h4>
+      <p>주가가 "올랐다 → 쉬었다"를 반복한 횟수입니다. 아무 움직임이나 세는 게 아니라, 그 종목의 평소 변동폭(ATR)보다 확실히 큰 움직임만 "진짜 쉬는 구간(레그)"으로 인정합니다. 표에 "3개"라고 나오면 이런 눌림목을 3번 거쳤다는 뜻입니다.</p>
+
+      <h4>피벗대비(%)</h4>
+      <p><b>피벗</b>은 "가장 최근, 가장 좁게 쉰 구간의 꼭대기 가격"입니다. 이 가격을 힘차게 돌파하면 진짜 상승이 시작된다고 보는 기준선입니다. "피벗대비 -3.1%"는 지금 가격이 그 기준선보다 3.1% 아래에 있다는 뜻입니다. 0%에 가까울수록(혹은 살짝 위) 돌파가 임박했다고 봅니다.</p>
+      <div class="term-box">
+        <b>계산 방법</b>: (현재가 ÷ 피벗가격 − 1) × 100
+      </div>
+
+      <h4>손절리스크%</h4>
+      <p>"만약 지금 사서 틀렸다면, 최대 몇 %까지 손해를 각오해야 하나"를 보여줍니다. 피벗을 살짝(1%) 넘긴 자리에서 샀다고 가정하고, 가장 최근 눌림목의 바닥(손절가)까지 떨어지면 몇 % 손해인지 계산합니다. 보통 7~8% 이내를 적당한 리스크로 봅니다.</p>
+      <div class="term-box">
+        <b>계산 방법</b>: 진입가 = 피벗가격 × 1.01 (피벗보다 1% 위에서 산다고 가정)<br>
+        손절리스크% = (진입가 − 손절가) ÷ 진입가 × 100
+      </div>
+
+      <h4>VCP 뱃지</h4>
+      <ul>
+        <li><span style="color:#1a7f37;font-weight:700">진입가능</span> — 눌림목 폭이 확인상 좁아지고 있고(수축↓), 피벗 근처이며, 손절리스크도 적당한 경우</li>
+        <li><span style="color:#6b7280;font-weight:700">형성중</span> — 아직 패턴이 다 갖춰지지 않았거나, 좁아지는지 판단할 자료(레그)가 부족한 경우</li>
+        <li><span style="color:#b06a00;font-weight:700">확장(과열)</span> — 이미 피벗을 훌쩍 넘어 많이 올라간 경우 — 지금 사면 추격매수가 됨</li>
+        <li>"거래량↓" 표시 — 가장 최근 눌림목 구간의 거래대금이 그 이전보다 줄었다는 뜻. 팔 사람이 줄었다는 신호로 봅니다.</li>
+      </ul>
+
+      <div class="example">
+        <h4>📐 직접 검증해보기 — 신한지주(055550) 실제 사례</h4>
+        <p>표에 나온 값(현재가 <b>112,900원</b>, 피벗대비 <b>-3.1%</b>, 손절리스크 <b>7.5%</b>)만으로 미니 차트의 피벗·손절 가격이 맞게 계산됐는지 직접 확인해볼 수 있습니다.</p>
+        <ol>
+          <li><b>피벗가격 역산</b> — 피벗대비(%) 공식을 거꾸로 풀면:
+            <div class="formula">피벗가격 = 현재가 ÷ (1 + 피벗대비%÷100) = 112,900 ÷ (1 − 0.031) ≈ 116,500원</div>
+          </li>
+          <li><b>진입가 계산</b>:
+            <div class="formula">진입가 = 피벗가격 × 1.01 = 116,500 × 1.01 ≈ 117,665원</div>
+          </li>
+          <li><b>손절가 역산</b> — 손절리스크% 공식을 거꾸로 풀면:
+            <div class="formula">손절가 = 진입가 × (1 − 손절리스크%÷100) = 117,665 × (1 − 0.075) ≈ 108,840원</div>
+          </li>
+        </ol>
+        <p>실제로 이 종목을 클릭해서 뜨는 미니 차트에는 <b>피벗 116,500 / 손절 108,900</b>으로 표시되는데, 위 계산과 거의 정확히 일치합니다(작은 차이는 실제 호가 단위 반올림 때문입니다). 다른 종목도 같은 방법으로 직접 검산해볼 수 있습니다.</p>
+      </div>
+
+      <h3>5. 유동성·가격 필터 (한국)</h3>
+      <ul>
+        <li>주가 2,000원 이상 (동전주 제외)</li>
+        <li>20일 평균 거래대금 50억원 이상</li>
+      </ul>
+
+      <h3>6. 유동성·가격 필터 (미국)</h3>
+      <ul>
+        <li>주가 10달러 이상</li>
+        <li>20일 평균 거래대금 1,000만달러 이상</li>
+      </ul>
+
+      <h3>7. 유니버스에서 제외되는 종목 (한국)</h3>
+      <ul>
+        <li><b>정리매매 의심 종목</b> — 15거래일 이내 32% 초과 등락이 2회 이상 겹치고, 캐시 최신일까지 거래가 이어지지 않는 종목. 상장폐지 확정 후 상하한가가 풀린 구간의 실제 거래라 가격을 신뢰할 수 없어 제외합니다.</li>
+        <li><b>우선주</b> — 종목명이 "…우" 또는 "…우B"로 끝나는 종목. 보통주와 이중 계산되는 것을 막기 위해 <b>시장 폭 패널 계산에서만</b> 제외합니다. Momentum Watchlist(통과·관찰·전체 목록)에는 포함됩니다.</li>
+      </ul>
+      <p class="note">위 두 항목 중 우선주 제외 여부가 시장 폭과 Watchlist 사이에 다르게 적용되고 있어, 두 화면의 "8조건 통과" 숫자가 정확히 일치하지 않을 수 있습니다(보통 몇 종목 이내 차이). 시장 폭은 시장 전체의 체력을 보는 지표라 유동성 필터를 걸지 않고, Watchlist는 실제로 매매 가능한 후보만 남기기 위해 유동성 필터를 겁니다 — 두 화면의 목적이 달라 숫자도 다르게 설계돼 있습니다.</p>
+
+      <h3>8. 데이터 기준</h3>
+      <p>가격은 KRX Open API(한국)·yfinance(미국) 원자료를 씁니다. 한국은 액면분할·병합·1일 데이터 오류를 자동 탐지해 소급 보정한 값을 사용합니다(원본 자체가 수정주가가 아니기 때문입니다). 52주 신고가·신저가는 그 기간의 실제 장중 고가·저가 기준입니다(종가가 아닙니다 — 미네르비니 원 정의를 따릅니다). 고가·저가 데이터를 확보하지 못한 경우에만 예외적으로 종가로 근사하며, 그럴 땐 대시보드 상단 안내나 로그에 표시됩니다.</p>
+
+      <p class="note">VCP 분석은 자동 근사치입니다. 판정 로직이 실제 차트의 패턴을 오인할 수 있으니, "진입가능"으로 뜬 종목도 반드시 차트로 직접 확인한 뒤 판단하세요. 이 화면은 SEPA 1단계(기술적 필터)만 담고 있어, 2단계 펀더멘털과 3단계 진입 시점은 직접 확인해야 합니다. 투자 참고 자료이며 투자 권유가 아닙니다.</p>
+
+    </div>
+  </div>
 </div>
 
 <script>
@@ -535,46 +751,82 @@ const DATA = __DATA__;
 const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "__CURRENT__";
 const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
-const INDEX_SNAPSHOT = __INDEX_SNAPSHOT__;
-const RISK_SIGNALS = __RISK_SIGNALS__;
+const MACRO_SNAPSHOT = __MACRO_SNAPSHOT__;   // market_macro.py 결과 (없으면 [])
+const BREADTH_SNAPSHOT = __BREADTH_SNAPSHOT__;   // market_breadth.py 결과 (없으면 [])
+const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만, 없으면 {})
 
-// ── 시황 · 리스크 패널 렌더 ──────────────────────────────
+// ── 시장 폭 패널 렌더 ─────────────────────────────────────
+// [2026-09-12] tt8_count/above200_pct 등은 market_breadth.py가
+// breadth/{market}_{date}.json 으로 미리 계산해둔 값을 그대로 받아 보여주기만
+// 한다 — 대시보드 쪽에서 다시 계산하지 않는다.
+(function(){
+  const host = document.getElementById("breadthCards");
+  const section = document.getElementById("breadthSection");
+  if(!host || !section || !(BREADTH_SNAPSHOT||[]).length) return;
+  section.hidden = false;
+
+  const LABEL = {KOSPI:"코스피", KOSDAQ:"코스닥", KR_TOTAL:"한국 전체", SP500:"S&P 500"};
+  let bh = "";
+  for(const b of BREADTH_SNAPSHOT){
+    const nm = LABEL[b.market] || b.market;
+    if(b.status === "incomplete"){
+      bh += `<div class="idx-card fail"><div class="nm">${nm}</div>
+        <div class="val">데이터 부족</div></div>`;
+      continue;
+    }
+    const cls = b.above200_pct==null ? "" : (b.above200_pct>=50?"pos":"neg");
+    const deltaTxt = (b.above200_pct_delta==null) ? "" :
+      (b.above200_pct_delta>0?"+":"") + b.above200_pct_delta.toFixed(1) + "p";
+    bh += `<div class="idx-card compact">
+      <div class="nm">${nm}</div>
+      <div class="valrow"><span class="val num ${cls}">${b.above200_pct==null?"–":b.above200_pct}%</span>
+      <span class="chg num ${cls}">200일선 위 ${deltaTxt?`(${deltaTxt})`:""}</span></div>
+      <div class="sub">신고가 ${b.nh52} · 신저가 ${b.nl52} · 8조건 ${b.tt8_count}종목</div>
+    </div>`;
+  }
+  host.innerHTML = bh;
+})();
+
+// ── 매크로 지표 패널 렌더 ──────────────────────────────
+// [2026-09-12] 예전엔 "시황 개요"(지수)와 "리스크 신호"(VIX 등)를 따로
+// 뒀었는데, 소스를 market_macro.py 하나(yfinance)로 통일하면서 화면도
+// 하나로 합쳤다.
 (function(){
   const idxHost = document.getElementById("idxCards");
-  const riskHost = document.getElementById("riskCards");
-  if(!idxHost || !riskHost) return;
+  const idxHost2 = document.getElementById("idxCards2");
+  if(!idxHost || !idxHost2) return;
 
-  let ih = "";
-  for(const c of (INDEX_SNAPSHOT||[])){
-    if(!c.ok){
-      ih += `<div class="idx-card fail"><div class="nm">${c.name}</div><div class="val">–</div></div>`;
-      continue;
-    }
-    const cls = c.change_pct>0?"pos":(c.change_pct<0?"neg":"");
-    const sign = c.change_pct>0?"+":"";
-    ih += `<div class="idx-card"><div class="nm">${c.name}</div>
-      <div class="val num">${c.value.toLocaleString()}</div>
-      <div class="chg num ${cls}">${sign}${c.change_pct}%</div></div>`;
-  }
-  idxHost.innerHTML = ih || '<div class="idx-card fail">지수 정보 없음</div>';
+  // 1~6번째(나스닥·S&P500·코스피·코스닥·원달러·VIX) 1행,
+  // 7~11번째(미국채10년·30년·달러인덱스·WTI·금) 2행.
+  // 순서는 market_macro.py의 TICKERS 순서를 그대로 따른다.
+  const row1 = (MACRO_SNAPSHOT||[]).slice(0, 6);
+  const row2 = (MACRO_SNAPSHOT||[]).slice(6);
 
-  let rh = "";
-  for(const r of (RISK_SIGNALS||[])){
-    if(!r.ok){
-      rh += `<div class="risk-card fail"><div class="nm">${r.name}</div>
-        <div class="val">조회 실패</div>
-        ${r.detail?`<div class="asof">${r.detail}</div>`:""}</div>`;
-      continue;
+  function renderRow(items, compact){
+    let h = "";
+    for(const c of items){
+      if(!c.ok){
+        h += `<div class="idx-card${compact?" compact":""} fail"><div class="nm">${c.name}</div><div class="val">–</div></div>`;
+        continue;
+      }
+      const cls = c.change_pct>0?"pos":(c.change_pct<0?"neg":"");
+      const sign = c.change_pct>0?"+":"";
+      const warn = (c.name==="VIX" && c.value>=30);
+      if(compact){
+        h += `<div class="idx-card compact${warn?" warn":""}"><div class="nm">${c.name}</div>
+          <div class="valrow"><span class="val num">${c.value.toLocaleString()}</span>
+          <span class="chg num ${cls}">${sign}${c.change_pct}%</span></div></div>`;
+      } else {
+        h += `<div class="idx-card${warn?" warn":""}"><div class="nm">${c.name}</div>
+          <div class="val num">${c.value.toLocaleString()}</div>
+          <div class="chg num ${cls}">${sign}${c.change_pct}%</div></div>`;
+      }
     }
-    const warn = (r.name==="VIX" && r.value>=30) ||
-                (r.name.includes("Fear") && r.value<=25) ||
-                (r.name.includes("BofA") && r.value<=4.0);
-    rh += `<div class="risk-card${warn?" warn":""}"><div class="nm">${r.name}</div>
-      <div class="val num">${r.value}${r.name.includes("BofA")?"%":""}</div>
-      <div class="lbl">${r.label}</div>
-      <div class="asof">기준: ${r.as_of||"–"}</div></div>`;
+    return h;
   }
-  riskHost.innerHTML = rh || '<div class="risk-card fail">리스크 신호 없음</div>';
+
+  idxHost.innerHTML = renderRow(row1, true) || '<div class="idx-card fail">매크로 지표 없음</div>';
+  idxHost2.innerHTML = renderRow(row2, true);
 })();
 let view="pass", mkt="US", minRS=0, q="", sortKey="cap", sortDir=-1, open=null;
 
@@ -583,14 +835,18 @@ const COLS=[
   ["price","현재가",""],
   ["rs","RS",""],
   ["high","52주 고점 대비","rail"],
-  ["low","저점 대비%","hide-s"],
-  ["ma50","50일선 이격%","hide-s"],
-  ["slope","200일선 기울기%","hide-s"],
+  ["low","저점대비%","hide-s"],
+  ["ma50","50일선<br>이격%","hide-s"],
+  ["slope","200일선<br>기울기%","hide-s"],
   ["turnover","거래대금","hide-s"],
-  ["cap","cap-caption","hide-s"],   // 라벨은 시장에 따라 렌더 시점에 동적으로 붙인다
+  ["cap","시가총액","hide-s"],
+  ["pivot","피벗대비(%)","hide-s"],
+  ["legs","수축","hide-s"],
+  ["risk","손절리스크%","hide-s"],
+  ["vcp","VCP","hide-s"],
 ];
 
-function capUnitLabel(m){ return m==="US" ? "시가총액(1B)" : "시가총액(1천억원)"; }
+function capUnitLabel(m){ return m==="US" ? "* 시가총액($1B 기준)" : "* 시가총액(1천억원 기준)"; }
 
 const fmtMoney=(v,m)=>{
   if(v==null) return "–";
@@ -621,6 +877,35 @@ function ext(v){
   return `<span class="${sign(v)}">${txt}</span>`;
 }
 const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2});
+
+// VCP 표시용 포맷터
+const VCP_LABEL = {
+  entry_ready: "진입가능", developing: "형성중", extended: "확장(과열)",
+  no_pattern: "패턴없음", unknown: "–",
+};
+function vcpBadge(status, tightening, dryup){
+  if(status==null) return "–";
+  const cls = status==="entry_ready" ? "vcp-ready"
+            : status==="extended" ? "vcp-ext" : "vcp-dev";
+  const marks = [];
+  if(tightening===true) marks.push("수축↓");
+  if(dryup===true) marks.push("거래량↓");
+  const sub = marks.length ? `<div class="vcp-sub">${marks.join(" · ")}</div>` : "";
+  return `<div class="vcp-cell"><span class="vcp-badge ${cls}">${VCP_LABEL[status]||status}</span>${sub}</div>`;
+}
+function pivotCell(v, pivotPrice){
+  if(v==null) return "–";
+  const txt=(v>0?"+":"")+v.toFixed(1)+"%";
+  const cls = (v>=-3 && v<=2) ? "pos" : (v>2 ? "neg" : "");
+  const priceTxt = pivotPrice==null ? "" : ` (피벗가 ${pivotPrice.toLocaleString()})`;
+  return `<span class="${cls}" title="현재가가 피벗 대비 ${v>0?"위":"아래"} ${Math.abs(v).toFixed(1)}%${priceTxt}">${txt}</span>`;
+}
+function riskCell(v, stopPrice){
+  if(v==null) return "–";
+  const cls = v<=8 ? "pos" : (v<=10 ? "" : "neg");
+  const priceTxt = stopPrice==null ? "" : `손절가 ${stopPrice.toLocaleString()}`;
+  return `<span class="${cls}" title="${priceTxt}">${v.toFixed(1)}%</span>`;
+}
 
 // 고점 근접도: -25%(왼쪽) → 0%(오른쪽, 신고가)
 function rail(v){
@@ -701,17 +986,17 @@ function render(){
     return;
   }
 
-  let h='<div class="tbl-scroll"><table><thead><tr>';
+  let h=`<div class="tbl-note">${capUnitLabel(mkt)}</div>
+    <div class="tbl-scroll"><table><thead><tr>`;
   for(const [k,label,cls] of COLS){
     const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
-    const text = k==="cap" ? capUnitLabel(mkt) : label;
-    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${text}</th>`;
+    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${label}</th>`;
   }
   h+='</tr></thead><tbody>';
 
   for(const d of rows){
     const same=d.name===d.ticker;
-    const nm = same ? "" : (d.name.length>9 ? d.name.slice(0,9)+"…" : d.name);
+    const nm = same ? "" : (d.name.length>15 ? d.name.slice(0,15)+"…" : d.name);
     const on = FAVS.has(favKey(d));
     // 미달 조건은 클릭이 아니라 마우스오버(모바일은 배지 탭)로 보여준다
     const tipBody = d.fails.length
@@ -734,7 +1019,11 @@ function render(){
       <td class="num hide-s">${ext(d.ma50)}</td>
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
       <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td>
-      <td class="num hide-s">${fmtCap(d.cap,d.market)}</td></tr>`;
+      <td class="num hide-s">${fmtCap(d.cap,d.market)}</td>
+      <td class="num hide-s">${pivotCell(d.pivot, d.pivotPrice)}</td>
+      <td class="num hide-s">${d.legs==null?"–":d.legs+"개"}</td>
+      <td class="num hide-s">${riskCell(d.risk, d.stopPrice)}</td>
+      <td class="hide-s">${vcpBadge(d.vcp, d.tight, d.dryup)}</td></tr>`;
   }
   host.innerHTML=h+"</tbody></table></div>";
 }
@@ -779,9 +1068,15 @@ document.addEventListener("click",e=>{
 
   const tr=e.target.closest("tbody tr[data-t]");
   if(tr){
-    const t=tr.dataset.t;
-    if(open===t){ open=null; hideChart(); }
-    else { open=t; showChart(t, tr.dataset.m); }
+    const t=tr.dataset.t, m=tr.dataset.m;
+    if(m==="KR"){
+      openNaverChart(t);
+      // [2026-09-13] 한국 종목은 TradingView가 아니라 네이버 탭을 쓰므로,
+      // 이전에 미국 종목을 봤을 때 열려 있던 TradingView 패널이 그대로
+      // 남아 있으면 "지금 보는 게 어느 종목이지?" 헷갈린다. 클릭 시 정리한다.
+      open=null; hideChart();
+    } else if(open===t){ open=null; hideChart(); } else { open=t; showChart(t, m); }
+    toggleVcpChart(t, m);
     render();
     return;
   }
@@ -795,28 +1090,37 @@ document.addEventListener("keydown",e=>{
   const tr=e.target.closest && e.target.closest("tbody tr[data-t]");
   if(tr){
     e.preventDefault();
-    const t=tr.dataset.t;
-    if(open===t){ open=null; hideChart(); }
-    else { open=t; showChart(t, tr.dataset.m); }
+    const t=tr.dataset.t, m=tr.dataset.m;
+    if(m==="KR"){
+      openNaverChart(t);
+      open=null; hideChart();
+    } else if(open===t){ open=null; hideChart(); } else { open=t; showChart(t, m); }
+    toggleVcpChart(t, m);
     render();
   }
 });
 
-// ── TradingView 차트 ────────────────────────────────────
-// 한국은 KRX:종목코드, 미국은 티커 그대로 쓴다.
-// 위젯 자체에 기간·봉 전환 도구가 들어 있어 따로 만들지 않는다.
+// ── 종목 차트 ────────────────────────────────────────────
+// 미국은 TradingView 위젯을 화면 안에 그대로 띄운다.
+// [2026-09-12] 한국은 TradingView 무료 위젯이 코스닥 중소형주 상당수를
+// 커버하지 못하고(차트 공백), 네이버 이미지 임베드도 화질·기간전환이
+// 제대로 안 돼(당일 분봉 썸네일만 제공하는 것으로 확인) 둘 다 포기했다.
+// 대신 네이버 금융 종목 페이지를 "같은 이름의 탭"으로 열어, 클릭할
+// 때마다 새 탭이 계속 쌓이지 않고 기존 탭 내용만 바뀌게 한다.
 function tvSymbol(ticker, market){
   return market==="KR" ? `KRX:${ticker}` : ticker;
+}
+function openNaverChart(ticker){
+  window.open(`https://finance.naver.com/item/main.naver?code=${ticker}`, "naverChartTab");
 }
 function showChart(ticker, market){
   const wrap=document.getElementById("chartWrap");
   const box=document.getElementById("chartBox");
-  const sym=tvSymbol(ticker, market);
   const row=DATA.find(d=>d.ticker===ticker && d.market===market);
   document.getElementById("chartTitle").textContent =
     (row && row.name!==row.ticker) ? `${row.name} (${ticker})` : ticker;
 
-  // range=12M(약 250거래일) + 일봉 캔들이 기본. 사용자가 차트 안에서 바꿀 수 있다.
+  const sym=tvSymbol(ticker, market);
   const q=new URLSearchParams({
     symbol:sym, interval:"D", range:"12M", theme:"light", style:"1",
     locale:"kr", hide_side_toolbar:"0", allow_symbol_change:"0",
@@ -832,9 +1136,117 @@ function hideChart(){
   wrap.hidden=true;
   document.getElementById("chartBox").innerHTML="";   // 정지시켜 리소스 낭비 방지
 }
+
+// ── VCP 미니 차트 (피벗선·손절선·레그 음영) ──────────────
+// [2026-09-13] 통과·관찰(7조건 이상) 종목만 vcp.py가 미리 계산해 넘겨준
+// 130일치 가격을 그대로 그린다 — 여기서 다시 계산하지 않는다. TradingView/
+// 네이버 차트와 달리 "레그를 왜 저렇게 잘랐는지"를 검증하기 위한 용도라,
+// 분석에 쓴 것과 정확히 같은 구간·같은 좌표를 그려야 의미가 있다.
+let vcpOpen = null;
+function toggleVcpChart(ticker, market){
+  const chart = VCP_CHARTS[ticker];
+  if(!chart){ hideVcpChart(); return; }   // 관찰 미만 종목 등, 분석 대상이 아니었던 경우
+  if(vcpOpen===ticker){ hideVcpChart(); return; }
+  vcpOpen = ticker;
+  const row = DATA.find(d=>d.ticker===ticker && d.market===market);
+  document.getElementById("vcpChartTitle").textContent =
+    (row && row.name!==row.ticker) ? `${row.name} (${ticker}) · VCP 분석` : `${ticker} · VCP 분석`;
+  document.getElementById("vcpChartBox").innerHTML = buildVcpSvg(chart);
+  const wrap = document.getElementById("vcpChartWrap");
+  wrap.hidden = false;
+}
+function hideVcpChart(){
+  vcpOpen = null;
+  const wrap = document.getElementById("vcpChartWrap");
+  wrap.hidden = true;
+  document.getElementById("vcpChartBox").innerHTML = "";
+}
+document.getElementById("vcpChartClose").addEventListener("click", hideVcpChart);
+
+function buildVcpSvg(chart){
+  const W = 720, H = 260, padL = 44, padR = 12, padT = 26, padB = 22;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const closes = chart.close, highs = chart.high, lows = chart.low;
+  const n = closes.length;
+  const lo = Math.min(...lows, chart.stop_price);
+  const hi = Math.max(...highs, chart.pivot_price);
+  const span = (hi - lo) || 1;
+  const x = i => padL + (i/(n-1)) * innerW;
+  const y = v => padT + (1 - (v - lo)/span) * innerH;
+
+  // 종가 라인
+  let linePts = closes.map((c,i)=>`${x(i).toFixed(1)},${y(c).toFixed(1)}`).join(" ");
+
+  // 레그 음영 (조정 구간을 옅은 회색으로)
+  let legRects = "";
+  (chart.legs||[]).forEach((leg,i)=>{
+    const x1 = x(leg.high_idx), x2 = x(leg.low_idx);
+    const shade = i===(chart.legs.length-1) ? "rgba(37,99,235,.10)" : "rgba(120,120,120,.07)";
+    legRects += `<rect x="${Math.min(x1,x2).toFixed(1)}" y="${padT}" width="${Math.abs(x2-x1).toFixed(1)}" height="${innerH}" fill="${shade}"/>`;
+  });
+
+  // 피벗선(초록 점선) · 손절선(빨강 점선)
+  const pivotY = y(chart.pivot_price), stopY = y(chart.stop_price);
+  const pivotLine = `<line x1="${padL}" y1="${pivotY.toFixed(1)}" x2="${W-padR}" y2="${pivotY.toFixed(1)}" stroke="#1a7f37" stroke-width="1.3" stroke-dasharray="4 3"/>
+    <text x="${W-padR}" y="${Math.max(pivotY-4, 11).toFixed(1)}" font-size="10" fill="#1a7f37" text-anchor="end">피벗 ${chart.pivot_price}</text>`;
+  const stopLine = `<line x1="${padL}" y1="${stopY.toFixed(1)}" x2="${W-padR}" y2="${stopY.toFixed(1)}" stroke="#c0343b" stroke-width="1.3" stroke-dasharray="4 3"/>
+    <text x="${W-padR}" y="${Math.max(stopY-4, 11).toFixed(1)}" font-size="10" fill="#c0343b" text-anchor="end">손절 ${chart.stop_price}</text>`;
+
+  // x축 날짜 라벨 (처음·중간·마지막만)
+  const labelIdx = [0, Math.floor(n/2), n-1];
+  let xLabels = labelIdx.map(i=>`<text x="${x(i).toFixed(1)}" y="${H-6}" font-size="9.5" fill="#8a90a0"
+    text-anchor="${i===0?"start":(i===n-1?"end":"middle")}">${chart.dates[i]}</text>`).join("");
+
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+    ${legRects}
+    ${pivotLine}
+    ${stopLine}
+    <polyline points="${linePts}" fill="none" stroke="#1B2A4A" stroke-width="1.6"/>
+    ${xLabels}
+  </svg>`;
+}
 document.getElementById("chartClose").addEventListener("click",()=>{
   open=null; hideChart(); render();
 });
+
+// ── 필터링 기준 팝업 ──────────────────────────────────────
+(function(){
+  const btn = document.getElementById("filterInfoBtn");
+  const overlay = document.getElementById("filterInfoOverlay");
+  const closeBtn = document.getElementById("filterInfoClose");
+  const pdfBtn = document.getElementById("filterInfoPdf");
+  if(!btn || !overlay) return;
+  const open = () => { overlay.hidden = false; };
+  const close = () => { overlay.hidden = true; };
+  btn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+
+  // PDF 저장: 별도 라이브러리 없이 브라우저 인쇄 기능을 이용한다.
+  // (이 대시보드는 인터넷 없이도 열리는 로컬 파일이라, 외부 PDF
+  // 라이브러리를 CDN에서 받아오는 방식은 오프라인일 때 깨질 수 있다.)
+  // 인쇄 시 body에 클래스를 달아, @media print 규칙이 팝업 내용만
+  // 남기고 나머지 화면 전체를 숨기게 한다. 인쇄창에서 "PDF로 저장"을
+  // 고르면 그대로 PDF 파일이 된다.
+  //
+  // [2026-09-14] 용지 방향(@page)은 CSS에서 body 클래스로 조건부 지정이
+  // 안 된다 — 메인 Watchlist 표 인쇄용 @page{size:A4 landscape}가 이미
+  // 있어서, 그대로 두면 이 팝업도 가로로 인쇄된다. 인쇄하는 순간에만
+  // <style> 태그를 추가해 세로(A4 portrait)로 덮어쓰고, 끝나면 없앤다.
+  if(pdfBtn){
+    pdfBtn.addEventListener("click", () => {
+      const portraitStyle = document.createElement("style");
+      portraitStyle.id = "pdfPortraitOverride";
+      portraitStyle.textContent = "@media print{ @page{ size:A4 portrait; margin:18mm 15mm; } }";
+      document.head.appendChild(portraitStyle);
+      document.body.classList.add("printing-filter-info");
+      window.print();
+      document.body.classList.remove("printing-filter-info");
+      portraitStyle.remove();
+    });
+  }
+})();
 
 // ── 관심종목 동기화 (복사 / 붙여넣기) ────────────────────
 (function(){
@@ -1154,8 +1566,8 @@ def _day_list(out_dir: str, current_file: str) -> list:
 
 def build(csv_path: str, out_path: str = None, open_browser: bool = True,
          hist_dir: str = None, generate_strategy: bool = True,
-         session: str = "MANUAL", index_snapshot: list = None,
-         risk_signals: list = None, data_as_of: str = None) -> str:
+         session: str = "MANUAL", macro_snapshot: list = None,
+         data_as_of: str = None, breadth_snapshot: list = None) -> str:
     """
     data_as_of: 'YYYYMMDD'. 실제 가격 데이터의 기준일(장전 스캔이면 --data-date
     로 고정한 직전 영업일). run_daily.py가 CSV 파일명을 오늘 날짜로 맞추기
@@ -1179,6 +1591,19 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     df.index = [str(i).zfill(6) if str(i).isdigit() else str(i) for i in df.index]
 
     stamp = os.path.basename(csv_path).replace("sepa_scan_", "").replace(".csv", "")
+
+    # VCP 미니 차트 데이터 — CSV와 같은 stamp의 짝 파일. 없으면(구버전 CSV,
+    # VCP 분석 실패 등) 빈 딕셔너리로 두고 화면에서는 해당 종목 클릭 시
+    # 차트 패널이 그냥 안 뜨도록 처리한다(에러 아님).
+    vcp_charts = {}
+    chart_json_path = os.path.join(os.path.dirname(csv_path), f"sepa_vcp_charts_{stamp}.json")
+    if os.path.exists(chart_json_path):
+        try:
+            with open(chart_json_path, encoding="utf-8") as f:
+                vcp_charts = json.load(f)
+        except Exception as e:
+            print(f"[대시보드] VCP 차트 데이터 로드 실패(표는 정상 표시됩니다): {e}")
+
     try:
         scan_date = dt.datetime.strptime(stamp, "%Y%m%d").date()
     except ValueError:
@@ -1261,8 +1686,9 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__KR_LABEL__", kr_stat["label"])
             .replace("__US_LABEL__", us_stat["label"])
             .replace("__ACTIONS_URL__", _actions_url())
-            .replace("__INDEX_SNAPSHOT__", json.dumps(index_snapshot or [], ensure_ascii=False))
-            .replace("__RISK_SIGNALS__", json.dumps(risk_signals or [], ensure_ascii=False)))
+            .replace("__MACRO_SNAPSHOT__", json.dumps(macro_snapshot or [], ensure_ascii=False))
+            .replace("__BREADTH_SNAPSHOT__", json.dumps(breadth_snapshot or [], ensure_ascii=False))
+            .replace("__VCP_CHARTS__", json.dumps(vcp_charts, ensure_ascii=False)))
 
     # 최종 파일은 history/ (영구 보관) 와 output/ (당일 산출물) 양쪽에 둔다.
     # 파일명을 NFC로 강제 통일한다.

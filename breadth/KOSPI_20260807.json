@@ -1,0 +1,18 @@
+{
+  "tt8_count": 41,
+  "tt8_pct": 4.88,
+  "tt7_count": 44,
+  "trend_ex_rs_pct": 4.88,
+  "nh52": 22,
+  "nl52": 18,
+  "net_hl": 4,
+  "above200_pct": 22.59,
+  "above50_pct": 47.32,
+  "n_universe": 868,
+  "n_valid": 841,
+  "status": "live",
+  "market": "KOSPI",
+  "data_date": "20260807",
+  "source": "backfill",
+  "generated_at": "2026-09-12T16:51:11"
+}

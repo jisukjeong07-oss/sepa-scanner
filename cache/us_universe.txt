@@ -1,0 +1,503 @@
+A	Agilent Technologies
+AAPL	Apple Inc.
+ABBV	AbbVie
+ABNB	Airbnb
+ABT	Abbott Laboratories
+ACGL	Arch Capital Group
+ACN	Accenture
+ADBE	Adobe Inc.
+ADI	Analog Devices
+ADM	Archer Daniels Midland
+ADP	Automatic Data Processing
+ADSK	Autodesk
+AEE	Ameren
+AEP	American Electric Power
+AES	AES Corporation
+AFL	Aflac
+AIG	American International Group
+AIZ	Assurant
+AJG	Arthur J. Gallagher & Co.
+AKAM	Akamai Technologies
+ALB	Albemarle Corporation
+ALGN	Align Technology
+ALL	Allstate
+ALLE	Allegion
+AMAT	Applied Materials
+AMCR	Amcor
+AMD	Advanced Micro Devices
+AME	Ametek
+AMGN	Amgen
+AMP	Ameriprise Financial
+AMT	American Tower
+AMZN	Amazon
+ANET	Arista Networks
+AON	Aon plc
+AOS	A. O. Smith
+APA	APA Corporation
+APD	Air Products
+APH	Amphenol
+APO	Apollo Global Management
+APP	AppLovin
+APTV	Aptiv
+ARE	Alexandria Real Estate Equities
+ARES	Ares Management
+ATO	Atmos Energy
+AVGO	Broadcom
+AVY	Avery Dennison
+AWK	American Water Works
+AXON	Axon Enterprise
+AXP	American Express
+AZO	AutoZone
+BA	Boeing
+BAC	Bank of America
+BALL	Ball Corporation
+BAX	Baxter International
+BBY	Best Buy
+BDX	Becton Dickinson
+BEN	Franklin Resources
+BF-B	Brown–Forman
+BG	Bunge Global
+BIIB	Biogen
+BKNG	Booking Holdings
+BKR	Baker Hughes
+BLDR	Builders FirstSource
+BLK	BlackRock
+BMY	Bristol Myers Squibb
+BNY	BNY Mellon
+BR	Broadridge Financial Solutions
+BRK-B	Berkshire Hathaway
+BRO	Brown & Brown
+BSX	Boston Scientific
+BX	Blackstone Inc.
+BXP	BXP, Inc.
+C	Citigroup
+CAH	Cardinal Health
+CARR	Carrier Global
+CASY	Casey's
+CAT	Caterpillar Inc.
+CB	Chubb Limited
+CBOE	Cboe Global Markets
+CBRE	CBRE Group
+CCI	Crown Castle
+CCL	Carnival Corporation
+CDNS	Cadence Design Systems
+CDW	CDW Corporation
+CEG	Constellation Energy
+CF	CF Industries
+CFG	Citizens Financial Group
+CHD	Church & Dwight
+CHRW	C.H. Robinson
+CHTR	Charter Communications
+CI	Cigna
+CIEN	Ciena
+CINF	Cincinnati Financial
+CL	Colgate-Palmolive
+CLX	Clorox
+CMCSA	Comcast
+CME	CME Group
+CMG	Chipotle Mexican Grill
+CMI	Cummins
+CMS	CMS Energy
+CNC	Centene Corporation
+CNP	CenterPoint Energy
+COF	Capital One
+COHR	Coherent Corp.
+COIN	Coinbase
+COO	Cooper Companies (The)
+COP	ConocoPhillips
+COR	Cencora
+COST	Costco
+CPAY	Corpay
+CPRT	Copart
+CPT	Camden Property Trust
+CRH	CRH plc
+CRL	Charles River Laboratories
+CRM	Salesforce
+CRWD	CrowdStrike
+CSCO	Cisco
+CSGP	CoStar Group
+CSX	CSX Corporation
+CTAS	Cintas
+CTSH	Cognizant
+CTVA	Corteva
+CVNA	Carvana
+CVS	CVS Health
+CVX	Chevron Corporation
+D	Dominion Energy
+DAL	Delta Air Lines
+DASH	DoorDash
+DD	DuPont
+DDOG	Datadog
+DE	Deere & Company
+DECK	Deckers Brands
+DELL	Dell Technologies
+DG	Dollar General
+DGX	Quest Diagnostics
+DHI	D. R. Horton
+DHR	Danaher Corporation
+DIS	Walt Disney Company (The)
+DLR	Digital Realty
+DLTR	Dollar Tree
+DOC	Healthpeak Properties
+DOV	Dover Corporation
+DOW	Dow Inc.
+DPZ	Domino's
+DRI	Darden Restaurants
+DTE	DTE Energy
+DUK	Duke Energy
+DVA	DaVita
+DVN	Devon Energy
+DXCM	Dexcom
+EBAY	eBay Inc.
+ECHO	EchoStar
+ECL	Ecolab
+ED	Consolidated Edison
+EFX	Equifax
+EG	Everest Group
+EIX	Edison International
+EL	Estée Lauder Companies (The)
+ELV	Elevance Health
+EME	Emcor
+EMR	Emerson Electric
+EOG	EOG Resources
+EQIX	Equinix
+EQT	EQT Corporation
+ERIE	Erie Indemnity
+ES	Eversource Energy
+ESS	Essex Property Trust
+ETN	Eaton Corporation
+ETR	Entergy
+EVRG	Evergy
+EW	Edwards Lifesciences
+EXC	Exelon
+EXE	Expand Energy
+EXPD	Expeditors International
+EXPE	Expedia Group
+EXR	Extra Space Storage
+F	Ford Motor Company
+FANG	Diamondback Energy
+FAST	Fastenal
+FCX	Freeport-McMoRan
+FDS	FactSet
+FDX	FedEx
+FDXF	FedEx Freight
+FE	FirstEnergy
+FERG	Ferguson Enterprises
+FFIV	F5, Inc.
+FICO	Fair Isaac
+FIS	Fidelity National Information Services
+FISV	Fiserv
+FITB	Fifth Third Bancorp
+FIX	Comfort Systems USA
+FLEX	Flex Ltd.
+FOX	Fox Corporation (Class B)
+FOXA	Fox Corporation (Class A)
+FRT	Federal Realty Investment Trust
+FSLR	First Solar
+FTNT	Fortinet
+FTV	Fortive
+GD	General Dynamics
+GDDY	GoDaddy
+GE	GE Aerospace
+GEHC	GE HealthCare
+GEN	Gen Digital
+GEV	GE Vernova
+GILD	Gilead Sciences
+GIS	General Mills
+GL	Globe Life
+GLW	Corning Inc.
+GM	General Motors
+GNRC	Generac
+GOOG	Alphabet Inc. (Class C)
+GOOGL	Alphabet Inc. (Class A)
+GPC	Genuine Parts Company
+GPN	Global Payments
+GRMN	Garmin
+GS	Goldman Sachs
+GWW	W. W. Grainger
+HAL	Halliburton
+HAS	Hasbro
+HBAN	Huntington Bancshares
+HCA	HCA Healthcare
+HD	Home Depot (The)
+HIG	Hartford (The)
+HII	Huntington Ingalls Industries
+HLT	Hilton Worldwide
+HON	Honeywell Technologies
+HONA	Honeywell Aerospace
+HOOD	Robinhood Markets
+HPE	Hewlett Packard Enterprise
+HPQ	HP Inc.
+HRL	Hormel Foods
+HSIC	Henry Schein
+HST	Host Hotels & Resorts
+HSY	Hershey Company (The)
+HUBB	Hubbell Incorporated
+HUM	Humana
+HWM	Howmet Aerospace
+IBKR	Interactive Brokers
+IBM	IBM
+ICE	Intercontinental Exchange
+IDXX	Idexx Laboratories
+IEX	IDEX Corporation
+IFF	International Flavors & Fragrances
+INCY	Incyte
+INTC	Intel
+INTU	Intuit
+INVH	Invitation Homes
+IP	International Paper
+IQV	IQVIA
+IR	Ingersoll Rand
+IRM	Iron Mountain
+ISRG	Intuitive Surgical
+IT	Gartner
+ITW	Illinois Tool Works
+IVZ	Invesco
+J	Jacobs Solutions
+JBHT	J.B. Hunt
+JBL	Jabil
+JCI	Johnson Controls
+JKHY	Jack Henry & Associates
+JNJ	Johnson & Johnson
+JPM	JPMorgan Chase
+KDP	Keurig Dr Pepper
+KEY	KeyCorp
+KEYS	Keysight Technologies
+KHC	Kraft Heinz
+KIM	Kimco Realty
+KKR	KKR & Co.
+KLAC	KLA Corporation
+KMB	Kimberly-Clark
+KMI	Kinder Morgan
+KO	Coca-Cola Company (The)
+KR	Kroger
+KVUE	Kenvue
+L	Loews Corporation
+LDOS	Leidos
+LEN	Lennar
+LH	Labcorp
+LHX	L3Harris
+LII	Lennox International
+LIN	Linde plc
+LITE	Lumentum
+LLY	Lilly (Eli)
+LMT	Lockheed Martin
+LNT	Alliant Energy
+LOW	Lowe's
+LRCX	Lam Research
+LULU	Lululemon Athletica
+LUV	Southwest Airlines
+LVS	Las Vegas Sands
+LYB	LyondellBasell
+LYV	Live Nation Entertainment
+MA	Mastercard
+MAA	Mid-America Apartment Communities
+MAR	Marriott International
+MAS	Masco
+MCD	McDonald's
+MCHP	Microchip Technology
+MCK	McKesson Corporation
+MCO	Moody's Corporation
+MDLZ	Mondelez International
+MDT	Medtronic
+MET	MetLife
+META	Meta Platforms
+MGM	MGM Resorts
+MKC	McCormick & Company
+MLM	Martin Marietta Materials
+MMM	3M
+MNST	Monster Beverage
+MO	Altria
+MOS	Mosaic Company (The)
+MPC	Marathon Petroleum
+MPWR	Monolithic Power Systems
+MRK	Merck & Co.
+MRNA	Moderna
+MRSH	Marsh McLennan
+MRVL	Marvell Technology
+MS	Morgan Stanley
+MSCI	MSCI
+MSFT	Microsoft
+MSI	Motorola Solutions
+MTB	M&T Bank
+MTD	Mettler Toledo
+MU	Micron Technology
+NCLH	Norwegian Cruise Line Holdings
+NDAQ	Nasdaq, Inc.
+NDSN	Nordson Corporation
+NEE	NextEra Energy
+NEM	Newmont
+NFLX	Netflix
+NI	NiSource
+NKE	Nike, Inc.
+NOC	Northrop Grumman
+NOW	ServiceNow
+NRG	NRG Energy
+NSC	Norfolk Southern
+NTAP	NetApp
+NTRS	Northern Trust
+NUE	Nucor
+NVDA	Nvidia
+NVR	NVR, Inc.
+NWS	News Corp (Class B)
+NWSA	News Corp (Class A)
+NXPI	NXP Semiconductors
+O	Realty Income
+ODFL	Old Dominion
+OKE	Oneok
+OMC	Omnicom Group
+ON	ON Semiconductor
+ORCL	Oracle Corporation
+ORLY	O'Reilly Automotive
+OTIS	Otis Worldwide
+OXY	Occidental Petroleum
+PANW	Palo Alto Networks
+PAYX	Paychex
+PCAR	Paccar
+PCG	PG&E Corporation
+PEG	Public Service Enterprise Group
+PEP	PepsiCo
+PFE	Pfizer
+PFG	Principal Financial Group
+PG	Procter & Gamble
+PGR	Progressive Corporation
+PH	Parker Hannifin
+PHM	PulteGroup
+PKG	Packaging Corporation of America
+PLD	Prologis
+PLTR	Palantir Technologies
+PM	Philip Morris International
+PNC	PNC Financial Services
+PNR	Pentair
+PNW	Pinnacle West Capital
+PODD	Insulet Corporation
+PPG	PPG Industries
+PPL	PPL Corporation
+PRU	Prudential Financial
+PSA	Public Storage
+PSKY	Paramount Skydance Corporation
+PSX	Phillips 66
+PTC	PTC Inc.
+PWR	Quanta Services
+PYPL	PayPal
+Q	Qnity Electronics
+QCOM	Qualcomm
+RCL	Royal Caribbean Group
+RDDT	Reddit
+REG	Regency Centers
+REGN	Regeneron Pharmaceuticals
+RF	Regions Financial Corporation
+RJF	Raymond James Financial
+RL	Ralph Lauren Corporation
+RMD	ResMed|
+ROK	Rockwell Automation
+ROL	Rollins, Inc.
+ROP	Roper Technologies
+ROST	Ross Stores
+RSG	Republic Services
+RTX	RTX Corporation
+RVTY	Revvity
+SBAC	SBA Communications
+SBUX	Starbucks
+SCHW	Charles Schwab Corporation
+SHW	Sherwin-Williams
+SJM	J.M. Smucker Company (The)
+SLB	Schlumberger
+SMCI	Supermicro
+SNA	Snap-on
+SNDK	Sandisk
+SNPS	Synopsys
+SO	Southern Company
+SOLV	Solventum
+SPG	Simon Property Group
+SPGI	S&P Global
+SRE	Sempra
+STE	Steris
+STLD	Steel Dynamics
+STT	State Street Corporation
+STX	Seagate Technology
+STZ	Constellation Brands
+SW	Smurfit Westrock
+SWK	Stanley Black & Decker
+SWKS	Skyworks Solutions
+SYF	Synchrony Financial
+SYK	Stryker Corporation
+SYY	Sysco
+T	AT&T
+TAP	Molson Coors Beverage Company
+TDG	TransDigm Group
+TDY	Teledyne Technologies
+TECH	Bio-Techne
+TEL	TE Connectivity
+TER	Teradyne
+TFC	Truist Financial
+TGT	Target Corporation
+TJX	TJX Companies
+TKO	TKO Group Holdings
+TMO	Thermo Fisher Scientific
+TMUS	T-Mobile US
+TPL	Texas Pacific Land Corporation
+TPR	Tapestry, Inc.
+TRGP	Targa Resources
+TRMB	Trimble Inc.
+TROW	T. Rowe Price
+TRV	Travelers Companies (The)
+TSCO	Tractor Supply
+TSLA	Tesla, Inc.
+TSN	Tyson Foods
+TT	Trane Technologies
+TTD	Trade Desk (The)
+TTWO	Take-Two Interactive
+TXN	Texas Instruments
+TXT	Textron
+TYL	Tyler Technologies
+UAL	United Airlines Holdings
+UBER	Uber
+UDR	UDR, Inc.
+UHS	Universal Health Services
+ULTA	Ulta Beauty
+UNH	UnitedHealth Group
+UNP	Union Pacific Corporation
+UPS	United Parcel Service
+URI	United Rentals
+USB	U.S. Bancorp
+V	Visa Inc.
+VEEV	Veeva Systems
+VICI	Vici Properties
+VLO	Valero Energy
+VLTO	Veralto
+VMC	Vulcan Materials Company
+VMRK	Vivmark Residential
+VRSK	Verisk Analytics
+VRSN	Verisign
+VRT	Vertiv
+VRTX	Vertex Pharmaceuticals
+VST	Vistra Corp.
+VTR	Ventas
+VTRS	Viatris
+VZ	Verizon
+WAB	Wabtec
+WAT	Waters Corporation
+WBD	Warner Bros. Discovery
+WDAY	Workday, Inc.
+WDC	Western Digital
+WEC	WEC Energy Group
+WELL	Welltower
+WFC	Wells Fargo
+WM	Waste Management
+WMB	Williams Companies
+WMT	Walmart
+WRB	W. R. Berkley Corporation
+WSM	Williams-Sonoma, Inc.
+WST	West Pharmaceutical Services
+WTW	Willis Towers Watson
+WY	Weyerhaeuser
+WYNN	Wynn Resorts
+XEL	Xcel Energy
+XOM	ExxonMobil
+XYL	Xylem Inc.
+XYZ	Block, Inc.
+YUM	Yum! Brands
+ZBH	Zimmer Biomet
+ZBRA	Zebra Technologies
+ZTS	Zoetis

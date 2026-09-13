@@ -74,6 +74,8 @@ _load_env()
 from sepa_scanner import run, OUT_DIR
 import make_report
 import make_dashboard
+import market_breadth
+import market_macro
 
 
 def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
@@ -127,6 +129,13 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
         shutil.copy2(src_csv, csv_path)
         print(f"CSV 사본 생성: {os.path.basename(src_csv)} "
               f"-> {os.path.basename(csv_path)} (데이터는 {scan_stamp} 종가)")
+        # VCP 미니 차트 JSON도 CSV와 같은 규칙으로 이름이 바뀌어야 한다.
+        # make_dashboard.py가 csv_path만 보고 짝 파일을 찾기 때문에, 여기서
+        # 안 맞춰두면 이름 불일치로 차트가 조용히 안 뜬다.
+        src_chart = os.path.join(OUT_DIR, f"sepa_vcp_charts_{scan_stamp}.json")
+        chart_path = os.path.join(OUT_DIR, f"sepa_vcp_charts_{stamp}.json")
+        if os.path.exists(src_chart):
+            shutil.copy2(src_chart, chart_path)
 
     # 2단계: DART 펀더멘털 (한국 포함 + 키가 있을 때만)
     stage2_path = None
@@ -143,14 +152,38 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     elif market in ("KR", "ALL"):
         print("[안내] DART_API_KEY 미설정 — 1단계 결과만 사용합니다.")
 
+    # 2.5단계: 시장 폭 (KOSPI/KOSDAQ/KR_TOTAL/SP500)
+    # 스캔에 쓴 것과 같은 as_of 기준으로 하루치만 계산한다(백필은 최초
+    # 1회만 --backfill 30으로 따로 돌렸음). 실패해도 리포트·대시보드
+    # 생성 자체는 막지 않는다 — 시장 폭은 부가 정보이지 핵심 산출물이 아니다.
+    breadth_snapshot, breadth_summary = [], None
+    try:
+        breadth_markets = tuple(m for m in ("KR", "US") if market in (m, "ALL"))
+        if breadth_markets:
+            market_breadth.run(as_of=as_of, backfill=1, markets=breadth_markets)
+            breadth_snapshot = market_breadth.get_dashboard_snapshot()
+            breadth_summary = market_breadth.summary_line()
+    except Exception as e:
+        print(f"[경고] 시장 폭 계산 실패(리포트·대시보드는 정상 생성됩니다): {e}")
+
+    # 2.6단계: 매크로 지표 (나스닥·S&P500·미국채 금리·VIX·유가·금·달러인덱스·
+    # 코스피·코스닥·원달러). 화면에 낼 부가 정보라 실패해도 진행을 막지 않는다.
+    macro_snapshot = []
+    try:
+        macro_snapshot = market_macro.get_macro_snapshot()
+    except Exception as e:
+        print(f"[경고] 매크로 지표 조회 실패(리포트·대시보드는 정상 생성됩니다): {e}")
+
     # 산출물 (파일명에 세션이 붙어 장전/장마감/소급 기록이 각각 남는다)
-    pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session)
+    pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session,
+                                 breadth_summary=breadth_summary)
     # data_as_of=scan_stamp: 파일명은 오늘(stamp)로 맞춰도, 대시보드 상단에는
     # 실제 가격 데이터의 기준일을 정확히 보여줘야 한다. 장전 스캔에서 이 둘이
     # 갈라지는 게 "몇 일 종가인지 헷갈린다"는 혼선의 원인이었다.
     html_path = make_dashboard.build(csv_path, open_browser=open_browser,
                                      hist_dir=make_dashboard.HIST_DIR, session=session,
-                                     data_as_of=scan_stamp)
+                                     data_as_of=scan_stamp, breadth_snapshot=breadth_snapshot,
+                                     macro_snapshot=macro_snapshot)
 
     print(f"\n완료 [{session}] 대상일자={stamp}")
     if as_of:

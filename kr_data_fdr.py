@@ -555,15 +555,30 @@ def fetch_kr_fdr(start: str, end: str, limit: int = None) -> dict:
 
 
 def _unpack_fdr(long_df: pd.DataFrame) -> dict:
-    """long → wide 변환. sepa_scanner.screen() 이 기대하는 형태로 맞춘다."""
+    """
+    long → wide 변환. sepa_scanner.screen() 이 기대하는 형태로 맞춘다.
+
+    [2026-09-13] open/high/low/volume/market_cap/shares는 KRX Open API
+    경로에서만 존재한다(FDR 폴백 경로의 long_df는 close·value만 있음).
+    있는 컬럼만 골라 wide로 변환해 반환하므로, 호출하는 쪽은 반드시
+    result.get("high") 처럼 존재 여부를 확인하고 써야 한다.
+    """
     long_df = long_df.copy()
     long_df["date"] = pd.to_datetime(long_df["date"])
     close = long_df.pivot_table(index="date", columns="ticker", values="close")
     value = long_df.pivot_table(index="date", columns="ticker", values="value")
     meta = long_df.groupby("ticker")["market"].last().to_frame()
-    return {"close": close.sort_index(),
-            "value": value.sort_index().reindex(columns=close.columns),
-            "meta": meta}
+
+    out = {"close": close.sort_index(),
+           "value": value.sort_index().reindex(columns=close.columns),
+           "meta": meta}
+
+    for col in ("open", "high", "low", "volume", "market_cap", "shares"):
+        if col in long_df.columns and long_df[col].notna().any():
+            piv = long_df.pivot_table(index="date", columns="ticker", values=col)
+            out[col] = piv.sort_index().reindex(columns=close.columns)
+
+    return out
 
 
 def fdr_names(tickers) -> dict:
@@ -588,6 +603,178 @@ def fdr_names(tickers) -> dict:
 KRX_DAILY_CACHE = "kr_krx_daily"
 KRX_DAILY_FAIL_STREAK_MAX = 10   # 연속 실패 허용치 — 넘으면 중단(폴백 유도)
 
+# ═════════════════════════════════════════════════════════════
+# 액면분할·병합 자동 보정
+# ═════════════════════════════════════════════════════════════
+#
+# [2026-09-12 추가 배경]
+# KRX Open API의 종가(TDD_CLSPRC)는 수정주가가 아닌 원본 체결가다.
+# 2026년 "동전주"(1,000원 미만) 상장폐지 규정 신설로 액면병합 공시가
+# 전년 대비 30배 늘었고(코스피 38건·코스닥 138건), 매매정지 후 재상장
+# 되며 하루 만에 수 배씩 가격이 뛰거나 떨어지는 사례가 캐시에 다수
+# 확인됐다(2025-07~2026-09 구간 487건 중 476건이 실제 기업행위).
+#
+# 한국 시장은 상하한가가 ±30%로 묶여 있어, 하루 등락폭이 이를 넘는
+# 경우는 조직적 조정(분할·병합·감자 등) 없이는 나올 수 없다. 이 성질을
+# 이용해 이벤트를 자동 탐지하고, 원본 캐시 파일은 그대로 둔 채 반환
+# 직전에만 과거 가격을 현재 스케일로 소급 조정한다.
+#
+# 판정 기준 (종목별로 32% 초과 이벤트를 먼저 모두 모은 뒤 분류):
+#
+#   1) 정리매매 의심 — 같은 종목에서 32% 초과 이벤트가 15거래일 이내에
+#      2건 이상 몰려 있고, "그 종목이 캐시의 최신 날짜까지 더 이상
+#      거래되지 않는" 경우에만 정리매매로 판정한다. 소급 조정하지
+#      않고 원본 그대로 둔 채 "상장폐지 의심 종목" 목록에만 올린다.
+#      [2026-09-12] 15거래일 클러스터 조건만 썼을 때 046070·083660·
+#      182400·368970처럼 최신 날짜까지 정상 거래 중인 종목이 잘못
+#      걸리는 오탐이 확인되어, "최신 날짜 데이터 존재 여부"를 추가
+#      조건으로 넣었다. 진짜 정리매매(269620 등)는 급락 후 거래가
+#      아예 끊기지만, 정상 종목은 우연히 이벤트가 겹쳐도 거래가
+#      계속된다 — 이 차이로 훨씬 정확하게 구분된다.
+#
+#   2) 그 외 이벤트는 기존 방식대로 개별 판정한다.
+#      다음 거래일 종가가 "사건 전일" 대비 ±25% 이내로 돌아오면
+#        → 1일 데이터 오류로 보고 그 날짜 값만 결측 처리 후 보간
+#      그렇지 않으면
+#        → 실제 기업행위(분할·병합)로 보고, 사건일 이전 전체를
+#          관측된 비율로 소급 조정 (여러 번이면 최신 사건부터
+#          역순으로 적용해 복리 처리)
+#
+# 각 종목의 가장 최근 날짜에서 발생한 이상치는 다음 날 값이 아직
+# 없어 판정이 불가능하므로 이번 호출에서는 보류하고, 다음 날 캐시를
+# 다시 불러올 때 자동으로 재평가된다. (정리매매 판정에서도 마지막
+# 날짜 이벤트는 "아직 몇 건이 더 나올지 모름" 상태이므로 같은 이유로
+# 군집 판정에 포함하되, 새 이벤트가 더 나오면 다음 호출에서 갱신된다.)
+
+SPLIT_MOVE_THRESHOLD = 0.32        # 이 이상 등락은 상하한가로 설명 불가
+SPLIT_RECOVERY_BAND = (0.75, 1.33)  # 다음날 이 범위 안이면 1일 오류로 판정
+DELISTING_CLUSTER_WINDOW = 15      # 이 거래일 수 이내에
+DELISTING_CLUSTER_MIN_EVENTS = 2   # 이 건수 이상 몰리면 정리매매로 판정
+
+
+def _adjust_splits(long_df: pd.DataFrame) -> tuple:
+    """
+    액면분할·병합·1일 데이터 오류를 자동 탐지해 보정한 DataFrame을 반환한다.
+    정리매매로 의심되는 종목은 보정하지 않고 원본 그대로 두되, 통계의
+    'delisting_suspect_tickers'에 담아 상위(스캐너)가 걸러낼 수 있게 한다.
+    원본 long_df는 변경하지 않는다 (반환값은 사본).
+
+    [2026-09-12] 1단계(1일 오류 정리)와 2단계(기업행위·정리매매 탐지)를
+    분리했다. 한 번에 처리하면, 같은 종목에서 짧은 기간 안에 "1일 오류"와
+    "기업행위"가 바로 옆에 붙어 있을 때 — 기업행위의 조정 비율이 아직
+    보간 전인 원본값을 기준으로 계산되고, 그 비율이 이미 보간된 값에
+    곱해지면서 이어붙인 자리에 새로운 이상치가 생기는 문제가 있었다
+    (실사례: 121850). 1단계로 1일 오류를 먼저 정리해 깨끗한 시계열을
+    만든 뒤, 2단계에서 그 정리된 값을 기준으로 기업행위를 재탐지하면
+    이 간섭이 사라진다.
+
+    반환: (조정된 DataFrame, 통계 dict)
+    """
+    df = long_df.sort_values(["ticker", "date"]).reset_index(drop=True)
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    global_last_date = df["date"].max()   # 정리매매 판정의 기준선
+
+    # ── 1단계: 1일 데이터 오류만 먼저 탐지해 정리 ──
+    # (기업행위 여부는 아직 판단하지 않는다. 원시값 기준으로 "다음날 원래
+    #  수준으로 돌아오는지"만 확인해 순수 데이터 오류만 골라낸다.)
+    one_day_idx = []
+    for ticker, g in df.groupby("ticker", sort=False):
+        idx = g.index.to_numpy()
+        closes = g["close"].to_numpy(dtype=float)
+        n = len(closes)
+        for i in range(1, n - 1):   # 마지막 날짜는 다음날이 없어 여기선 판단 불가
+            prev_c, cur_c, nxt_c = closes[i - 1], closes[i], closes[i + 1]
+            if not (prev_c > 0 and cur_c > 0 and nxt_c > 0):
+                continue
+            if abs(cur_c / prev_c - 1.0) <= SPLIT_MOVE_THRESHOLD:
+                continue
+            if SPLIT_RECOVERY_BAND[0] <= (nxt_c / prev_c) <= SPLIT_RECOVERY_BAND[1]:
+                one_day_idx.append(idx[i])
+
+    if one_day_idx:
+        # close뿐 아니라 open·high·low도 같은 날짜에서 함께 결측 처리 후
+        # 보간한다. close만 고치면 그날의 시가·고가·저가가 엉뚱한 값으로
+        # 남아 VCP 계산(수축 폭은 고가·저가로 잰다)이 깨지기 때문이다.
+        # volume은 보간 대상이 아니다 — 거래량은 추세가 아니라 그날의
+        # 실제 체결 수량이라, 이상한 값이어도 임의로 채우면 오히려
+        # 거짓 정보가 된다. NaN으로만 남겨 "이 날짜는 신뢰 안 함"을 표시한다.
+        for col in ("close", "open", "high", "low"):
+            if col in df.columns:
+                df.loc[one_day_idx, col] = np.nan
+                df[col] = df.groupby("ticker")[col].transform(
+                    lambda s: s.interpolate(limit_direction="both")
+                )
+        if "volume" in df.columns:
+            df.loc[one_day_idx, "volume"] = np.nan
+
+    # ── 2단계: 정리된 시계열을 기준으로 기업행위·정리매매 재탐지 ──
+    persist_events = []       # (ticker, event_date, factor) — factor = close/prev
+    deferred = 0
+    delisting_suspects = set()
+
+    for ticker, g in df.groupby("ticker", sort=False):
+        idx = g.index.to_numpy()
+        closes = g["close"].to_numpy(dtype=float)   # 1단계 정리 후 값
+        dates = g["date"].to_numpy()
+        n = len(closes)
+
+        event_positions = []
+        for i in range(1, n):
+            prev_c, cur_c = closes[i - 1], closes[i]
+            if not (prev_c > 0 and cur_c > 0):
+                continue
+            if abs(cur_c / prev_c - 1.0) > SPLIT_MOVE_THRESHOLD:
+                event_positions.append(i)
+
+        if not event_positions:
+            continue
+
+        # 15거래일 이내 2건 이상 몰려 있고, 최신 날짜까지 거래가 이어지지
+        # 않는 경우에만 정리매매로 판정한다 (클러스터만으로는 우연히
+        # 이벤트가 겹친 정상 종목까지 걸릴 수 있다).
+        clustered = len(event_positions) >= DELISTING_CLUSTER_MIN_EVENTS and any(
+            (b - a) <= DELISTING_CLUSTER_WINDOW
+            for a, b in zip(event_positions, event_positions[1:])
+        )
+        still_trading = dates[-1] == global_last_date
+        if clustered and not still_trading:
+            delisting_suspects.add(ticker)
+            continue  # 이 종목은 조정하지 않고 원본(1단계 정리분만 반영) 그대로 둔다
+
+        for i in event_positions:
+            if i + 1 >= n:
+                # 가장 최근 날짜의 이상치 — 다음날 값이 없어 판정 불가, 보류
+                deferred += 1
+                continue
+            factor = closes[i] / closes[i - 1]
+            persist_events.append((ticker, dates[i], factor))
+
+    # 기업행위 — 최신 사건부터 역순으로 적용해 여러 번의 분할·병합을 복리 처리.
+    # 가격(open·high·low·close)은 같은 비율을 곱해 소급 조정한다.
+    # 거래량은 반대로 움직인다 — 예를 들어 10:1 분할이면 주가는 1/10, 유통
+    # 주식 수는 10배가 되므로, 과거 거래량을 "분할 후 주식 수 기준"으로
+    # 맞추려면 반대로(1/factor)를 곱해야 한다. market_cap·shares는 그날
+    # 그대로의 사실(그 시점의 실제 시가총액·상장주식수)이라 건드리지 않는다.
+    persist_events.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    affected_tickers = set()
+    price_cols = [c for c in ("close", "open", "high", "low") if c in df.columns]
+    for ticker, event_date, factor in persist_events:
+        mask = (df["ticker"] == ticker) & (df["date"] < event_date)
+        for col in price_cols:
+            df.loc[mask, col] *= factor
+        if "volume" in df.columns and factor != 0:
+            df.loc[mask, "volume"] /= factor
+        affected_tickers.add(ticker)
+
+    stats = {
+        "one_day_fixed": len(one_day_idx),
+        "persistent_events": len(persist_events),
+        "persistent_adjusted": len(affected_tickers),
+        "deferred_latest": deferred,
+        "delisting_suspect_tickers": sorted(delisting_suspects),
+    }
+    return df, stats
+
 
 def fetch_kr_krx_open(start: str, end: str) -> dict:
     """
@@ -603,10 +790,18 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
         raise RuntimeError("KRX_API_KEY 환경변수가 없어 고속 경로를 쓸 수 없습니다.")
 
     cache_path = os.path.join(CACHE_DIR, KRX_DAILY_CACHE)
-    long_df = pd.DataFrame(columns=["date", "ticker", "close", "value", "market"])
+    long_df = pd.DataFrame(columns=["date", "ticker", "close", "value", "market",
+                                     "open", "high", "low", "volume",
+                                     "market_cap", "shares"])
     if _exists(cache_path):
         long_df = _read(cache_path)
         long_df["date"] = pd.to_datetime(long_df["date"])
+        # [2026-09-13] 스키마 확장 이전에 받은 캐시(종가·거래대금만 있음)와
+        # 호환되도록, 없는 컬럼은 NaN으로 채운다. 이 행들은 VCP 계산(고가·
+        # 저가 필요)에서는 빠지지만, 8조건 스캔은 close만 쓰므로 그대로 유효하다.
+        for col in ("open", "high", "low", "volume", "market_cap", "shares"):
+            if col not in long_df.columns:
+                long_df[col] = np.nan
 
     s = pd.Timestamp(f"{start[:4]}-{start[4:6]}-{start[6:]}")
     e = pd.Timestamp(f"{end[:4]}-{end[4:6]}-{end[6:]}")
@@ -653,9 +848,19 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
                 value = pd.to_numeric(str(r.get("ACC_TRDVAL", "")).replace(",", ""), errors="coerce")
                 if pd.isna(close) or not code:
                     continue
-                day_rows.append({"date": d, "ticker": code, "close": close,
-                                 "value": 0.0 if pd.isna(value) else value,
-                                 "market": mkt_label})
+
+                def _num(field):
+                    v = pd.to_numeric(str(r.get(field, "")).replace(",", ""), errors="coerce")
+                    return None if pd.isna(v) else v
+
+                day_rows.append({
+                    "date": d, "ticker": code, "close": close,
+                    "value": 0.0 if pd.isna(value) else value,
+                    "market": mkt_label,
+                    "open": _num("TDD_OPNPRC"), "high": _num("TDD_HGPRC"),
+                    "low": _num("TDD_LWPRC"), "volume": _num("ACC_TRDVOL"),
+                    "market_cap": _num("MKTCAP"), "shares": _num("LIST_SHRS"),
+                })
 
         if day_rows:
             new_frames.append(pd.DataFrame(day_rows))
@@ -687,7 +892,27 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
             f"  → 재실행하면 남은 날짜를 이어서 수집합니다."
         )
 
-    return _unpack_fdr(sub)   # long -> wide 변환은 기존 함수를 그대로 재사용(컬럼명이 동일)
+    # 캐시 파일(원본 KRX 체결가)은 그대로 두고, 반환 직전에만 액면분할·
+    # 병합·1일 오류를 보정한다. 조정 범위는 요청 구간(sub)이 아니라
+    # 캐시 전체(long_df)로 계산해야 한다 — 예: 사건이 요청 시작일 이전에
+    # 있었다면 sub만 봐서는 그 사건 자체를 놓친다.
+    adjusted_all, split_stats = _adjust_splits(long_df)
+    sub = adjusted_all[mask]
+
+    if (split_stats["one_day_fixed"] or split_stats["persistent_adjusted"]
+            or split_stats["deferred_latest"] or split_stats["delisting_suspect_tickers"]):
+        print(f"[액면분할 보정] 1일 오류 수정 {split_stats['one_day_fixed']}건 · "
+              f"기업행위 소급조정 {split_stats['persistent_adjusted']}종목"
+              f"({split_stats['persistent_events']}건) · "
+              f"최신일 판정보류 {split_stats['deferred_latest']}건 · "
+              f"정리매매 의심 {len(split_stats['delisting_suspect_tickers'])}종목 "
+              f"(조정 안 함, 스캐너에서 별도 제외 필요)")
+        if split_stats["delisting_suspect_tickers"]:
+            print(f"  정리매매 의심 종목: {', '.join(split_stats['delisting_suspect_tickers'])}")
+
+    result = _unpack_fdr(sub)   # long -> wide 변환은 기존 함수를 그대로 재사용(컬럼명이 동일)
+    result["delisting_suspects"] = split_stats["delisting_suspect_tickers"]
+    return result
 
 
 if __name__ == "__main__":

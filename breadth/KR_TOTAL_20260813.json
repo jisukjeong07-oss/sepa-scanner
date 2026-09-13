@@ -1,0 +1,18 @@
+{
+  "tt8_count": 96,
+  "tt8_pct": 3.74,
+  "tt7_count": 107,
+  "trend_ex_rs_pct": 3.74,
+  "nh52": 59,
+  "nl52": 84,
+  "net_hl": -25,
+  "above200_pct": 20.87,
+  "above50_pct": 57.52,
+  "n_universe": 2735,
+  "n_valid": 2568,
+  "status": "live",
+  "market": "KR_TOTAL",
+  "data_date": "20260813",
+  "source": "backfill",
+  "generated_at": "2026-09-12T16:51:17"
+}

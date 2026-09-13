@@ -1,0 +1,19 @@
+{
+  "tt8_count": 52,
+  "tt8_pct": 3.0,
+  "tt7_count": 73,
+  "trend_ex_rs_pct": 3.0,
+  "nh52": 33,
+  "nl52": 110,
+  "net_hl": -77,
+  "above200_pct": 19.24,
+  "above50_pct": 56.68,
+  "n_universe": 1866,
+  "n_valid": 1736,
+  "status": "live",
+  "hilo_basis": "intraday",
+  "market": "KOSDAQ",
+  "data_date": "20260911",
+  "source": "live",
+  "generated_at": "2026-09-13T23:09:43"
+}

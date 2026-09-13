@@ -1,0 +1,18 @@
+{
+  "tt8_count": 73,
+  "tt8_pct": 14.6,
+  "tt7_count": 87,
+  "trend_ex_rs_pct": 20.4,
+  "nh52": 20,
+  "nl52": 5,
+  "net_hl": 15,
+  "above200_pct": 72.6,
+  "above50_pct": 58.4,
+  "n_universe": 503,
+  "n_valid": 500,
+  "status": "live",
+  "market": "SP500",
+  "data_date": "20260821",
+  "source": "backfill",
+  "generated_at": "2026-09-12T16:51:49"
+}
