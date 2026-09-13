@@ -150,6 +150,11 @@ jobs:
       # 장점이 사라짐). 파일이 상당히 크므로(수십 MB대) 저장소 용량이
       # 부담되면 이 줄만 빼면 기존 FDR 방식으로 자동 폴백된다.
       #
+      # breadth/ 는 market_breadth.py가 매일 하루치씩 쌓는 시장 폭
+      # 기록이다(스파크라인·전일 대비 계산에 쓰임). 러너는 매번 새로
+      # 뜨는 깨끗한 환경이라, 이걸 커밋하지 않으면 그날 계산한 하루치가
+      # 다음 실행 전에 사라져서 히스토리가 영영 하루 이상 못 쌓인다.
+      #
       # [2026-09-11] 이전 버전은 `git add -f ... 2>/dev/null || true` 로
       # 에러를 조용히 삼켰다. 그래서 cache/kr_krx_daily.* 가 한 번도
       # 커밋되지 않았는데도(저장소에서 직접 확인됨) 아무 경고도 없이
@@ -165,6 +170,17 @@ jobs:
 
           git add history/
 
+          # [2026-09-14] breadth/ 를 여기서 커밋하지 않으면 매 실행 후
+          # 사라진다(러너가 매번 새로 뜨기 때문). 존재 여부와 무관하게
+          # 시도하되, 없으면(이 실행에서 시장 폭 계산이 실패한 경우 등)
+          # 조용히 건너뛴다.
+          if [ -d "breadth" ]; then
+            git add breadth/
+            echo "breadth/ 추가됨 ($(ls breadth/*.json 2>/dev/null | wc -l)개 파일)"
+          else
+            echo "breadth/ 디렉터리가 없습니다(이번 실행에서 시장 폭 계산이 안 됐을 수 있음)."
+          fi
+
           for f in cache/kr_listing.parquet cache/kr_listing.pkl \
                    cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl; do
             if [ -f "$f" ]; then
@@ -179,14 +195,14 @@ jobs:
           done
 
           echo "── git status (커밋 전) ──"
-          git status --short cache/ history/ | head -20
+          git status --short cache/ history/ breadth/ | head -20
 
           if git diff --cached --quiet; then
-            echo "history/cache 변경 없음 — 커밋 생략"
+            echo "history/cache/breadth 변경 없음 — 커밋 생략"
           else
             git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
             echo "커밋된 파일 목록:"
-            git show --stat --format="" HEAD | grep -E "cache/|history/" | head -10
+            git show --stat --format="" HEAD | grep -E "cache/|history/|breadth/" | head -10
           fi
           # 스캔이 오래 걸리는 동안(한국 전종목이면 수십 분) 다른 곳(로컬 등)에서
           # history/ 에 파일을 올렸을 수 있다. 그걸 받아온 뒤에 매니페스트를
