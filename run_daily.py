@@ -44,9 +44,27 @@
 
 import os
 import shutil
+import json
 import argparse
 import datetime as dt
 import traceback
+
+RUN_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run_log.jsonl")
+
+
+def _append_run_log(entry: dict):
+    """
+    실행 로그 — 코드가 아니라 '실행 결과'를 남긴다. CHANGELOG.md(작업
+    로그, 사람이 직접 쓰는 코드 변경 이력)와는 완전히 다른 용도다.
+    자동(AM/PM)이든 수동(MANUAL/HIST)이든, 성공이든 실패든 한 줄씩
+    누적으로 쌓인다. JSON Lines 형식이라 한 줄이 곧 하나의 실행 기록이고,
+    중간에 깨져도 앞뒤 줄에는 영향이 없다.
+    """
+    try:
+        with open(RUN_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[실행 로그] 기록 실패(무시하고 계속 진행합니다): {e}")
 
 
 # ── .env 자동 로딩 ────────────────────────────────────────────
@@ -80,6 +98,7 @@ import market_macro
 
 def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
         session="MANUAL", date=None, data_date=None):
+    _run_start = dt.datetime.now()   # 실제 실행 시작 시각(벽시계) — 실행 로그용
     session = (session or "MANUAL").upper()
     if date:
         stamp = date
@@ -191,6 +210,16 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     print(f"  PDF        : {pdf_path}")
     print(f"  대시보드   : {html_path}")
     print(f"  원본 CSV   : {csv_path}")
+
+    _append_run_log({
+        "timestamp": _run_start.isoformat(timespec="seconds"),
+        "session": session,
+        "market": market,
+        "stamp": stamp,
+        "data_as_of": as_of or scan_stamp,
+        "status": "success",
+        "duration_sec": round((dt.datetime.now() - _run_start).total_seconds(), 1),
+    })
     return html_path
 
 
@@ -210,10 +239,21 @@ if __name__ == "__main__":
                          "장전 스캔에서 전일 종가를 고정할 때 사용. "
                          "--date 와 함께 주면 이쪽이 우선한다.")
     a = ap.parse_args()
+    _main_start = dt.datetime.now()
     try:
         main(a.market, a.min_rs, a.kr_source, open_browser=not a.no_open,
             session=a.session, date=a.date, data_date=a.data_date)
-    except Exception:
+    except Exception as e:
         print("\n실패:")
         traceback.print_exc()
+        _append_run_log({
+            "timestamp": _main_start.isoformat(timespec="seconds"),
+            "session": (a.session or "MANUAL").upper(),
+            "market": a.market,
+            "stamp": a.date or dt.date.today().strftime("%Y%m%d"),
+            "data_as_of": a.data_date or a.date,
+            "status": "failed",
+            "duration_sec": round((dt.datetime.now() - _main_start).total_seconds(), 1),
+            "error": str(e)[:300],
+        })
         raise

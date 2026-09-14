@@ -137,6 +137,129 @@ def _f(v):
         return None
 
 
+def _render_changelog_md(path: str) -> str:
+    """
+    CHANGELOG.md를 아주 단순한 규칙으로만 HTML로 바꾼다:
+      '## '로 시작 -> 소제목(h3)
+      '- '로 시작 -> 목록 항목(연속되면 하나의 ul로 묶음)
+      '---' 단독 줄 -> 구분선
+      그 외 내용 있는 줄 -> 문단(p)
+    본격적인 마크다운 파서가 아니라, 이 파일을 직접 쓸 사람(우리)이
+    정해진 형식만 지킨다는 전제로 짠 가벼운 변환기다.
+    """
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except Exception:
+        return ""
+
+    html = []
+    in_ul = False
+    started = False  # 첫 '---' 이전은 "파일 쓰는 법" 안내문이라 화면엔 안 띄운다
+
+    def close_ul():
+        nonlocal in_ul
+        if in_ul:
+            html.append("</ul>")
+            in_ul = False
+
+    for raw in lines:
+        line = raw.strip()
+        if not started:
+            if line == "---":
+                started = True
+            continue
+        if not line:
+            close_ul()
+            continue
+        if line == "---":
+            close_ul()
+            html.append('<hr style="border:none;border-top:1px solid var(--line);margin:14px 0">')
+        elif line.startswith("## "):
+            close_ul()
+            html.append(f"<h3>{_esc_html(line[3:])}</h3>")
+        elif line.startswith("# "):
+            close_ul()
+            # 문서 맨 위 제목 줄은 팝업 자체에 제목이 따로 있으니 건너뛴다
+            continue
+        elif line.startswith("- "):
+            if not in_ul:
+                html.append("<ul>")
+                in_ul = True
+            html.append(f"<li>{_esc_html(line[2:])}</li>")
+        else:
+            close_ul()
+            html.append(f"<p>{_esc_html(line)}</p>")
+    close_ul()
+    return "\n".join(html)
+
+
+def _esc_html(s: str) -> str:
+    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+_SESSION_LABEL_KO = {"AM": "장전", "PM": "장마감", "MANUAL": "수동", "HIST": "소급"}
+
+
+def _render_run_log(path: str, max_rows: int = 50) -> str:
+    """
+    run_log.jsonl(run_daily.py가 실행마다 한 줄씩 남긴 기록)을 최근 것부터
+    표로 렌더링한다. 파일이 없거나 비어 있으면 빈 문자열을 반환한다.
+    """
+    if not os.path.exists(path):
+        return ""
+    entries = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # 한 줄이 깨져도 나머지 로그는 살린다
+    except Exception:
+        return ""
+
+    if not entries:
+        return ""
+
+    entries = entries[::-1][:max_rows]  # 최근 순
+
+    rows = []
+    for e in entries:
+        ts = e.get("timestamp", "")
+        try:
+            ts_disp = dt.datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            ts_disp = ts
+        status = e.get("status", "")
+        session = _SESSION_LABEL_KO.get(e.get("session", ""), e.get("session", ""))
+        status_html = (
+            '<span class="runlog-ok">성공</span>' if status == "success"
+            else f'<span class="runlog-fail">실패</span>'
+        )
+        dur = e.get("duration_sec")
+        dur_disp = f"{dur:.0f}초" if isinstance(dur, (int, float)) else "–"
+        data_asof = e.get("data_as_of") or "–"
+        err = e.get("error")
+        err_html = f'<div class="runlog-err">{_esc_html(err)}</div>' if err else ""
+        rows.append(
+            f"<tr><td>{_esc_html(ts_disp)}</td><td>{_esc_html(session)}</td>"
+            f"<td>{status_html}</td><td>{_esc_html(str(data_asof))}</td>"
+            f"<td>{dur_disp}</td></tr>{err_html and f'<tr><td colspan=\"5\">{err_html}</td></tr>'}"
+        )
+
+    return (
+        '<table class="runlog-table">'
+        '<tr><th>실행 시각</th><th>세션</th><th>결과</th><th>데이터 기준일</th><th>소요시간</th></tr>'
+        + "".join(rows) + "</table>"
+    )
+
+
 HTML = """<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -397,10 +520,24 @@ tr.detail td{background:#F8FAFB;padding:14px 14px 16px;text-align:left;
        border:1px solid var(--line);border-radius:10px}
 footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
        border-top:1px solid var(--line);padding-top:14px}
-.footer-link-row{margin-top:10px;text-align:right}
+.footer-link-row{margin-top:10px;text-align:right;display:flex;justify-content:flex-end;gap:8px}
 .filter-btn{background:#E8630C;border:0;color:#fff;font-size:12.5px;font-weight:700;
   padding:9px 18px;border-radius:7px;cursor:pointer;letter-spacing:.01em}
 .filter-btn:hover{background:#CF5709}
+.log-btn{background:#1B2A4A;border:0;color:#fff;font-size:12.5px;font-weight:700;
+  padding:9px 18px;border-radius:7px;cursor:pointer;letter-spacing:.01em}
+.log-btn:hover{background:#12203D}
+.runlog-btn{background:#3F4552;border:0;color:#fff;font-size:12.5px;font-weight:700;
+  padding:9px 18px;border-radius:7px;cursor:pointer;letter-spacing:.01em}
+.runlog-btn:hover{background:#2E3340}
+.runlog-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:8px}
+.runlog-table th{text-align:left;padding:6px 8px;color:var(--muted);
+  border-bottom:1px solid var(--line);font-weight:700;background:none}
+.runlog-table td{padding:6px 8px;border-bottom:1px solid #EEF1F4}
+.runlog-ok{color:#1a7f37;font-weight:700}
+.runlog-fail{color:#c0343b;font-weight:700}
+.runlog-err{font-size:10.5px;color:#c0343b;background:#FBEAEA;border-radius:5px;
+  padding:5px 8px;margin-top:2px}
 
 /* 필터링 기준 팝업 */
 .modal-overlay{position:fixed;inset:0;background:rgba(15,17,21,.5);
@@ -468,6 +605,8 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 .mkt-status .dot.open{background:#2f8f4e}
 .mkt-status .dot.closed{background:var(--muted)}
 .mkt-status b{color:var(--ink);font-weight:700}
+.generated-at{margin-left:auto;font-size:12px;color:#B85C00;font-weight:700}
+.generated-at b{color:#E8630C;font-weight:800}
 
 /* 매매전략 진입 버튼 */
 .strat-open{border:1px solid var(--navy,#1a2b4c);background:transparent;color:#1a2b4c;
@@ -542,9 +681,9 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   <div class="macro-idx">
     <div class="macro-h-row">
       <div class="macro-h">매크로 지표</div>
-      <button id="macroCollapseBtn" class="macro-collapse-btn" aria-expanded="true">닫기</button>
+      <button id="macroCollapseBtn" class="macro-collapse-btn" aria-expanded="false">펼치기</button>
     </div>
-    <div id="macroCollapseBody">
+    <div id="macroCollapseBody" class="collapsed">
       <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
       <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
 
@@ -587,6 +726,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <div class="mkt-status">
   <span><span class="dot __KR_DOT__"></span>한국 <b>__KR_LABEL__</b></span>
   <span><span class="dot __US_DOT__"></span>미국 <b>__US_LABEL__</b></span>
+  <span class="generated-at">이 화면 조회 시각: <b>__GENERATED_AT__</b></span>
 </div>
 
 <div class="stats">
@@ -666,8 +806,42 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니버스 안에서 백분위로 환산한 근사값입니다.
 이 화면은 SEPA 1단계(기술적 필터)만 담고 있어, 2단계 펀더멘털과 3단계 진입 시점은 직접 확인해야 합니다.
 투자 참고 자료이며 투자 권유가 아닙니다.
-<div class="footer-link-row"><button id="filterInfoBtn" class="filter-btn">필터링 기준 보기</button></div>
+<div class="footer-link-row">
+  __RUNLOG_BTN__
+  __CHANGELOG_BTN__
+  <button id="filterInfoBtn" class="filter-btn">필터링 기준 보기</button>
+</div>
 </footer>
+</div>
+
+<div id="runlogOverlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="runlogTitle">
+    <div class="modal-head">
+      <h2 id="runlogTitle">실행 기록</h2>
+      <div class="modal-head-btns">
+        <button id="runlogClose" class="btn-sm">닫기</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p style="margin-top:0;color:var(--muted);font-size:11px">
+        자동(AM·PM 예약)·수동 실행이 언제 돌았는지, 성공했는지, 어느 날짜 종가 데이터를
+        받았는지를 실행할 때마다 자동으로 기록합니다. 최근 50건까지 보여줍니다.
+      </p>
+      <div id="runlogBody">__RUNLOG_HTML__</div>
+    </div>
+  </div>
+</div>
+
+<div id="changelogOverlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="changelogTitle">
+    <div class="modal-head">
+      <h2 id="changelogTitle">작업 로그</h2>
+      <div class="modal-head-btns">
+        <button id="changelogClose" class="btn-sm">닫기</button>
+      </div>
+    </div>
+    <div class="modal-body" id="changelogBody">__CHANGELOG_HTML__</div>
+  </div>
 </div>
 
 <div id="filterInfoOverlay" class="modal-overlay" hidden>
@@ -1286,6 +1460,34 @@ document.getElementById("chartClose").addEventListener("click",()=>{
   });
 })();
 
+// ── 실행 기록 팝업 ────────────────────────────────────────
+(function(){
+  const btn = document.getElementById("runlogBtn");
+  const overlay = document.getElementById("runlogOverlay");
+  const closeBtn = document.getElementById("runlogClose");
+  if(!btn || !overlay) return;
+  const open = () => { overlay.hidden = false; };
+  const close = () => { overlay.hidden = true; };
+  btn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+})();
+
+// ── 작업 로그 팝업 ────────────────────────────────────────
+(function(){
+  const btn = document.getElementById("changelogBtn");
+  const overlay = document.getElementById("changelogOverlay");
+  const closeBtn = document.getElementById("changelogClose");
+  if(!btn || !overlay) return;
+  const open = () => { overlay.hidden = false; };
+  const close = () => { overlay.hidden = true; };
+  btn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+})();
+
 // ── 필터링 기준 팝업 ──────────────────────────────────────
 (function(){
   const btn = document.getElementById("filterInfoBtn");
@@ -1682,6 +1884,21 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         except Exception as e:
             print(f"[대시보드] VCP 차트 데이터 로드 실패(표는 정상 표시됩니다): {e}")
 
+    # 작업 로그 — CHANGELOG.md를 직접 관리하면(가장 최근 항목을 맨 위에
+    # 추가) 대시보드의 "작업 로그" 버튼이 그 내용을 그대로 보여준다.
+    # 아주 단순한 마크다운만 지원한다: '## '는 소제목, '- '는 목록,
+    # 나머지 줄은 문단. 파일이 없으면 버튼 자체를 숨긴다.
+    changelog_html = _render_changelog_md(
+        os.path.join(os.path.dirname(csv_path), "..", "CHANGELOG.md")
+    )
+
+    # 실행 로그 — run_daily.py가 실행될 때마다(자동·수동, 성공·실패 무관)
+    # run_log.jsonl에 남긴 기록을 최근 것부터 보여준다. 작업 로그(코드
+    # 변경 이력)와는 다르게 이건 사람이 쓰지 않고 자동으로 쌓인다.
+    runlog_html = _render_run_log(
+        os.path.join(os.path.dirname(csv_path), "..", "run_log.jsonl")
+    )
+
     try:
         scan_date = dt.datetime.strptime(stamp, "%Y%m%d").date()
     except ValueError:
@@ -1750,10 +1967,19 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
 
     def _dot(open_): return "open" if open_ else "closed"
 
+    # [2026-09-14] "9월 14일 장마감"이라는 표지 날짜와, 실제로 이 화면이
+    # 몇 시에 조회·생성됐는지는 다를 수 있다(예: 새벽 1시에 수동 실행하면
+    # 그날 장이 열리기도 전인데 표지엔 "9월 14일 장마감"으로 찍힌다).
+    # 이 둘을 헷갈리지 않도록, 실제 생성 시각을 화면에 따로 표시한다.
+    _WEEKDAY_KR = ["월", "화", "수", "목", "금", "토", "일"]
+    _now = dt.datetime.now()
+    generated_at_label = f"{_now:%Y-%m-%d}({_WEEKDAY_KR[_now.weekday()]}) {_now:%H:%M} KST"
+
     html = (HTML
             .replace("__DATA__", json.dumps(_rows(df), ensure_ascii=False))
             .replace("__STRATEGY__", strategy_json)
             .replace("__DATE__", shown_date)
+            .replace("__GENERATED_AT__", generated_at_label)
             .replace("__TOTAL__", f"{len(df):,}")
             .replace("__KRN__", f"{int((df.get('market') == 'KR').sum()):,}")
             .replace("__USN__", f"{int((df.get('market') == 'US').sum()):,}")
@@ -1766,7 +1992,13 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__ACTIONS_URL__", _actions_url())
             .replace("__MACRO_SNAPSHOT__", json.dumps(macro_snapshot or [], ensure_ascii=False))
             .replace("__BREADTH_SNAPSHOT__", json.dumps(breadth_snapshot or [], ensure_ascii=False))
-            .replace("__VCP_CHARTS__", json.dumps(vcp_charts, ensure_ascii=False)))
+            .replace("__VCP_CHARTS__", json.dumps(vcp_charts, ensure_ascii=False))
+            .replace("__CHANGELOG_BTN__",
+                     '<button id="changelogBtn" class="log-btn">작업 로그</button>' if changelog_html else "")
+            .replace("__CHANGELOG_HTML__", changelog_html or "<p>작업 로그가 없습니다.</p>")
+            .replace("__RUNLOG_BTN__",
+                     '<button id="runlogBtn" class="runlog-btn">실행 기록</button>' if runlog_html else "")
+            .replace("__RUNLOG_HTML__", runlog_html or "<p>아직 기록된 실행이 없습니다.</p>"))
 
     # 최종 파일은 history/ (영구 보관) 와 output/ (당일 산출물) 양쪽에 둔다.
     # 파일명을 NFC로 강제 통일한다.
