@@ -21,6 +21,14 @@ env:
 
 jobs:
   deploy:
+    # [2026-09-14] daily.yml이 스캔 후 history/ 에 자기 push를 하면, 그
+    # push가 이 워크플로(paths: history/**)를 다시 트리거하는 연쇄가
+    # 있었다. daily.yml 자신도 뒤이어 site 빌드 + Pages 배포를 하므로,
+    # 결과적으로 두 워크플로가 같은 concurrency 그룹(pages)을 동시에
+    # 놓고 경쟁 → 한쪽이 대기열에 밀려 PM 예약 실행이 지연되는 원인이
+    # 됐다. github-actions[bot]이 만든 push는 건너뛰고, 사람이 직접
+    # push했을 때(맥북에서 history/ 를 올릴 때 등)만 돈다.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
