@@ -2,8 +2,8 @@ name: SEPA Daily Scan
 
 on:
   schedule:
-    - cron: '20 22 * * 0-4'   # KST 07:20 (한국 장 시작 전) — UTC 일~목 22:20
-    - cron: '30 7 * * 1-5'    # KST 16:30 (한국 장 마감 후) — UTC 월~금 07:30
+    - cron: '0 22 * * 0-4'    # KST 07:00 (한국 장 시작 전) — UTC 일~목 22:00
+    - cron: '0 13 * * 1-5'    # KST 22:00 (애프터마켓 20:00 마감 후 여유를 둠) — UTC 월~금 13:00
   workflow_dispatch:
     inputs:
       session:
@@ -53,9 +53,9 @@ jobs:
       - name: Determine session
         id: session
         run: |
-          if [ "${{ github.event.schedule }}" = "20 22 * * 0-4" ]; then
+          if [ "${{ github.event.schedule }}" = "0 22 * * 0-4" ]; then
             echo "value=AM" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "30 7 * * 1-5" ]; then
+          elif [ "${{ github.event.schedule }}" = "0 13 * * 1-5" ]; then
             echo "value=PM" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.event.inputs.session || 'MANUAL' }}" >> "$GITHUB_OUTPUT"
@@ -74,7 +74,7 @@ jobs:
           echo "=============================================="
           echo " 세션        : ${{ steps.session.outputs.value }}"
           echo " 시작 시각   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo " 예정 시각   : AM 07:20 / PM 16:30 (KST)"
+          echo " 예정 시각   : AM 07:00 / PM 22:00 (KST)"
           echo "=============================================="
           HHMM=$(date +%H%M)
           if [ "${{ steps.session.outputs.value }}" = "AM" ] && [ "$HHMM" -ge "0850" ]; then
