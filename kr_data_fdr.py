@@ -806,7 +806,16 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
     s = pd.Timestamp(f"{start[:4]}-{start[4:6]}-{start[6:]}")
     e = pd.Timestamp(f"{end[:4]}-{end[4:6]}-{end[6:]}")
 
-    have_dates = set(long_df["date"].dt.normalize()) if not long_df.empty else set()
+    # [2026-09-14] 예전엔 "날짜"만 보고 완료 여부를 판단해서, 코스피·코스닥
+    # 중 한쪽만 데이터가 들어와도 그 날짜 전체를 "완료"로 잘못 표시했다.
+    # 그러면 실패한 시장은 다음 실행에서도 다시 시도되지 않고 영원히
+    # 비어있게 된다. 두 시장 모두 데이터가 있는 날짜만 "완료"로 본다.
+    if not long_df.empty:
+        by_market = long_df.groupby("date")["market"].apply(set)
+        have_dates = set(by_market[by_market.apply(lambda s: {"KOSPI", "KOSDAQ"}.issubset(s))].index)
+        have_dates = {pd.Timestamp(d).normalize() for d in have_dates}
+    else:
+        have_dates = set()
     # 주말은 애초에 제외. 공휴일은 응답이 빈 배열로 오므로 그때 건너뛴다.
     all_days = pd.bdate_range(s, e)
     todo = [d for d in all_days if d.normalize() not in have_dates]
@@ -839,7 +848,17 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
                 continue
 
             if not rows:
-                continue   # 휴장일 — 정상 상황이므로 fail_streak 건드리지 않음
+                # [2026-09-14] 예전엔 이걸 "휴장일"로 간주해 조용히 넘어갔다.
+                # 그런데 9/14(월, 정규 개장일)이 이 경로로 조용히 스킵되면서
+                # 캐시에 최신 종가가 영영 안 채워지는 버그가 실제로 발생했다.
+                # 빈 응답이 "진짜 휴장일"인지 "API가 일시적으로 비어서 온 것"
+                # 인지 지금은 구분할 방법이 없으므로, 최소한 로그에는 남겨서
+                # 다음부터는 눈으로 구분할 수 있게 한다. 오늘이 아닌 과거
+                # 날짜에서 이 로그가 계속 뜨면 진짜 휴장일일 가능성이 높고,
+                # 가장 최근 영업일(오늘·어제)에서 뜨면 API 문제로 의심해야 한다.
+                print(f"  [빈 응답] {bas_dd} {mkt_label}: 휴장일 또는 API 일시 오류 "
+                      f"(구분 불가 — 최근 날짜에서 반복되면 API 문제로 의심)")
+                continue   # 휴장일일 수 있으므로 fail_streak은 건드리지 않음
             fail_streak = 0
 
             for r in rows:
@@ -897,7 +916,14 @@ def fetch_kr_krx_open(start: str, end: str) -> dict:
     # 캐시 전체(long_df)로 계산해야 한다 — 예: 사건이 요청 시작일 이전에
     # 있었다면 sub만 봐서는 그 사건 자체를 놓친다.
     adjusted_all, split_stats = _adjust_splits(long_df)
-    sub = adjusted_all[mask]
+    # [2026-09-14] mask는 조정 전 long_df 기준으로 만든 boolean Series다.
+    # _adjust_splits() 내부가 sort_values().reset_index(drop=True)로 행
+    # 순서·인덱스를 재배치하기 때문에, 그 mask를 조정 후 결과(adjusted_all)에
+    # 그대로 대면 인덱스가 어긋나 "Unalignable boolean Series" 에러가 난다
+    # (실제로 2026-09-14 실행에서 발생 확인됨). adjusted_all 자신의 date
+    # 컬럼으로 마스크를 다시 만들어야 한다.
+    mask2 = (adjusted_all["date"] >= s) & (adjusted_all["date"] <= e)
+    sub = adjusted_all[mask2]
 
     if (split_stats["one_day_fixed"] or split_stats["persistent_adjusted"]
             or split_stats["deferred_latest"] or split_stats["delisting_suspect_tickers"]):
