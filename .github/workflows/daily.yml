@@ -181,6 +181,22 @@ jobs:
             echo "breadth/ 디렉터리가 없습니다(이번 실행에서 시장 폭 계산이 안 됐을 수 있음)."
           fi
 
+          # [2026-09-14] run_log.jsonl — run_daily.py가 실행마다(성공·실패
+          # 무관) 한 줄씩 남기는 실행 기록. 이것도 breadth/ 와 같은 이유로
+          # 커밋해야 러너가 재시작될 때 사라지지 않는다. 실패한 실행까지
+          # 기록해야 의미가 있으므로, "Run scan" 스텝이 실패해도 이 스텝
+          # 자체는 항상 실행되어야 한다(그래서 워크플로 레벨에서 이 스텝에
+          # if: always() 가 필요할 수 있다 — 현재는 Run scan 실패 시 그
+          # 이후 스텝이 아예 안 도는 구조라, 실패 기록이 당장은 로컬 실행
+          # 에서만 남고 Actions 실패 실행에는 안 남을 수 있다는 한계가
+          # 있다. 성공 실행 기록만이라도 우선 쌓이게 한다).
+          if [ -f "run_log.jsonl" ]; then
+            git add -f run_log.jsonl
+            echo "run_log.jsonl 추가됨 ($(wc -l < run_log.jsonl)줄)"
+          else
+            echo "run_log.jsonl 파일이 없습니다."
+          fi
+
           for f in cache/kr_listing.parquet cache/kr_listing.pkl \
                    cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl; do
             if [ -f "$f" ]; then
@@ -195,14 +211,14 @@ jobs:
           done
 
           echo "── git status (커밋 전) ──"
-          git status --short cache/ history/ breadth/ | head -20
+          git status --short cache/ history/ breadth/ run_log.jsonl | head -20
 
           if git diff --cached --quiet; then
             echo "history/cache/breadth 변경 없음 — 커밋 생략"
           else
             git commit -m "SEPA 스캔 결과 $(date -u +%F) [${{ steps.session.outputs.value }}]"
             echo "커밋된 파일 목록:"
-            git show --stat --format="" HEAD | grep -E "cache/|history/|breadth/" | head -10
+            git show --stat --format="" HEAD | grep -E "cache/|history/|breadth/|run_log" | head -10
           fi
           # 스캔이 오래 걸리는 동안(한국 전종목이면 수십 분) 다른 곳(로컬 등)에서
           # history/ 에 파일을 올렸을 수 있다. 그걸 받아온 뒤에 매니페스트를
