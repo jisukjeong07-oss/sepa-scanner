@@ -354,24 +354,23 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
 
 /* 인쇄(=PDF 저장) 시 화면 조작부는 감추고 표만 남긴다 */
 @media print{
-  @page{size:A4 landscape;margin:12mm}
+  @page{size:A4 portrait;margin:10mm}
   body{background:#fff}
   .controls,.hact,footer .noprint{display:none !important}
   .wrap{max-width:none;padding:0}
-  table{border:1px solid #999}
+  table{border:1px solid #999;width:100% !important;min-width:0 !important;table-layout:auto}
   tbody tr{page-break-inside:avoid}
   thead{display:table-header-group}
   .hide-s{display:table-cell !important}
+  th,td{font-size:6.6pt !important;padding:2.5px 3px !important;letter-spacing:0}
+  /* 세로(A4 portrait) 폭에 14개 컬럼을 다 넣어야 해서, 장식용 막대(rail)는
+     자리만 차지하고 정보량은 적다 — 인쇄 시엔 숫자만 남기고 막대는 뺀다. */
+  .rail .track,.rail .zone,.rail .dot,.rail .peak{display:none !important}
+  .rail{width:auto !important}
+  .railnum{min-width:0 !important}
   .ext-warn{-webkit-print-color-adjust:exact;print-color-adjust:exact;
             background:#FBEAEA !important;color:#C0343B !important}
   .ext-caut{color:#A96A0B !important}
-  /* 인쇄 시 배경색이 지워지면 막대가 통째로 사라진다 */
-  .rail,.rail *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .rail .zone{background:#eee}
-  .rail .dot{background:#C0343B !important;border-color:#fff !important}
-  .rail .dot.out{background:#8A8F98 !important}
-  .rail .track{background:#D6DAE0 !important}
-  .rail .peak{background:#1A1D23 !important}
   th{background:#1B2A4A !important;color:#fff !important;
      -webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
@@ -655,7 +654,13 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   .strat-overlay{position:static;background:none;padding:0}
   .strat-modal{box-shadow:none;max-width:none}
   .strat-close,.strat-pdf{display:none}
-  @page{size:A4 landscape}
+  /* [2026-09-14] @page는 어느 내용을 인쇄하든 문서 전체에서 딱 하나로만
+     적용된다 — "이 블록이 보일 때만" 식으로 조건부 적용되지 않는다.
+     여기 따로 landscape를 또 선언하면, 문서에 마지막으로 나온 @page가
+     이겨서 Watchlist 표 인쇄(위쪽 세로 설정)까지 덩달아 가로로 바뀌는
+     버그가 실제로 있었다. 페이지 크기는 위에서 한 번만(세로) 정하고,
+     여기서는 다시 선언하지 않는다.
+  */
   /* 전략 팝업을 인쇄할 때는 뒤의 대시보드 본문을 숨겨 팝업만 나오게 한다 */
   body.printing-strat > .wrap > *:not(.strat-overlay){display:none !important}
   body.printing-strat .strat-overlay{display:block !important}
@@ -713,7 +718,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
         <button data-sess="PM" aria-pressed="false">장마감</button>
       </div>
       <a id="manualRun" class="btn btn-outline" href="__ACTIONS_URL__" target="_blank" rel="noopener">수동 조회</a>
-      <button id="pdf" class="btn">PDF로 저장</button>
+      <button id="pdf" class="btn">PDF</button>
     </div>
   </div>
   <div class="basis-row">
@@ -1510,9 +1515,10 @@ document.getElementById("chartClose").addEventListener("click",()=>{
   // 고르면 그대로 PDF 파일이 된다.
   //
   // [2026-09-14] 용지 방향(@page)은 CSS에서 body 클래스로 조건부 지정이
-  // 안 된다 — 메인 Watchlist 표 인쇄용 @page{size:A4 landscape}가 이미
-  // 있어서, 그대로 두면 이 팝업도 가로로 인쇄된다. 인쇄하는 순간에만
-  // <style> 태그를 추가해 세로(A4 portrait)로 덮어쓰고, 끝나면 없앤다.
+  // 안 된다 — 문서 전체에서 마지막에 선언된 @page 하나로 통일되기 때문에,
+  // 다른 인쇄 대상(Watchlist 표 등)과 설정이 꼬일 수 있다. 인쇄하는
+  // 순간에만 <style> 태그를 추가해 세로(A4 portrait)로 확실히 덮어쓰고,
+  // 끝나면 없앤다.
   if(pdfBtn){
     pdfBtn.addEventListener("click", () => {
       const portraitStyle = document.createElement("style");
@@ -1929,10 +1935,30 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     us_stat = mc.us_status(date_str)
 
     # 화면 상단에 "이 데이터가 정확히 어느 시장의 언제 종가인지"를 표시한다.
-    # 각 시장이 실제로 열려 있던 가장 최근 날짜를 기준으로 계산하므로,
-    # 한쪽만 휴장이었던 날(예: 미국 노동절)에도 정확한 날짜가 나온다.
-    kr_basis_date = _last_open_date(mc.kr_status, basis_ref)
-    us_basis_date = _last_open_date(mc.us_status, basis_ref)
+    #
+    # [2026-09-14] 예전엔 "달력상 오늘이 개장일인가"만 보고 날짜를 정했다
+    # (_last_open_date). 그런데 이건 실제로 그 날짜 데이터를 받았는지와는
+    # 무관한 계산이다 — 오늘(9/14)은 달력상 분명한 개장일이지만, KRX가
+    # 밤늦게까지 당일 종가를 확정 발행하지 않아 실제 캐시에는 9/11 데이터가
+    # 마지막으로 들어있던 사례가 실제로 있었다. 그때도 화면엔 "9/14 종가"
+    # 라고 잘못 표시됐다.
+    #
+    # market_breadth.py가 이미 "실제로 어느 날짜 가격 데이터를 썼는지"를
+    # data_date로 정직하게 남겨두므로(그 모듈은 캐시의 진짜 마지막 날짜를
+    # 쓰지, 달력을 보고 추측하지 않는다), 있으면 그걸 우선 신뢰한다.
+    # breadth 계산 자체가 실패했을 때만(부가 정보라 실패 허용) 예전
+    # 달력 기반 추정으로 폴백한다.
+    def _breadth_actual_date(markets):
+        for b in (breadth_snapshot or []):
+            if b.get("market") in markets and b.get("data_date"):
+                try:
+                    return dt.datetime.strptime(str(b["data_date"]), "%Y%m%d").date()
+                except ValueError:
+                    continue
+        return None
+
+    kr_basis_date = _breadth_actual_date(("KR_TOTAL",)) or _last_open_date(mc.kr_status, basis_ref)
+    us_basis_date = _breadth_actual_date(("SP500",)) or _last_open_date(mc.us_status, basis_ref)
     kr_basis_label, us_basis_label = _market_basis_labels(kr_basis_date, us_basis_date)
 
     # ── 초저가 종목 제외 (미국 $1 미만, 한국 1,000원 미만) ──────
