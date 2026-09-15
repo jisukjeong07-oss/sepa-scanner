@@ -3,7 +3,9 @@
 {"timestamp": "2026-09-14T21:30:33", "session": "PM", "market": "ALL", "stamp": "20260914", "data_as_of": "20260914", "status": "success", "duration_sec": 293.8}
 {"timestamp": "2026-09-14T21:50:34", "session": "PM", "market": "ALL", "stamp": "20260914", "data_as_of": "20260914", "status": "success", "duration_sec": 297.2}
 {"timestamp": "2026-09-14T22:47:26", "session": "PM", "market": "ALL", "stamp": "20260914", "data_as_of": "20260914", "status": "success", "duration_sec": 301.9}
-{"timestamp": "2026-09-14T23:53:08", "session": "PM", "market": "ALL", "stamp": "20260914", "data_as_of": "20260914", "status": "success", "duration_sec": 454.4}
-{"timestamp": "2026-09-15T03:26:36", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 228.7}
-{"timestamp": "2026-09-15T08:08:31", "session": "AM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260914", "status": "success", "duration_sec": 493.9}
-{"timestamp": "2026-09-15T09:05:28", "session": "AM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260914", "status": "success", "duration_sec": 491.6}
+{"timestamp": "2026-09-15T20:40:11", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 284.2}
+{"timestamp": "2026-09-15T21:14:26", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 269.0}
+{"timestamp": "2026-09-15T21:25:55", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 278.5}
+{"timestamp": "2026-09-15T21:58:05", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 279.5}
+{"timestamp": "2026-09-15T22:11:55", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 271.3}
+{"timestamp": "2026-09-15T22:33:14", "session": "PM", "market": "ALL", "stamp": "20260915", "data_as_of": "20260915", "status": "success", "duration_sec": 292.0}

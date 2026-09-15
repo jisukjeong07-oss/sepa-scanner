@@ -98,6 +98,11 @@ def _rows(df: pd.DataFrame) -> list:
         except (TypeError, ValueError):
             cap = None
 
+        # [2026-09-15] 회전율 · 이격 지속일수 — sepa_scanner.py의
+        # add_turnover_ratio() / deviation_days() 가 계산해 CSV에 붙여준 값을 그대로 읽는다.
+        dev_days_raw = r.get("dev_days")
+        dev_days_now_raw = r.get("dev_days_now")
+
         out.append({
             "ticker": str(idx),
             "name": str(r.get("name", idx)),
@@ -110,6 +115,12 @@ def _rows(df: pd.DataFrame) -> list:
             "slope": _f(r.get("MA200_slope_%")),
             "turnover": turnover,
             "cap": cap,
+            "turnoverRatio": _f(r.get("turnover_ratio")),
+            "turnoverRatio5d": _f(r.get("turnover_ratio_5d")),
+            "devDays": (int(dev_days_raw) if pd.notna(dev_days_raw) else None),
+            "devDaysNow": (None if pd.isna(dev_days_now_raw) else bool(dev_days_now_raw)),
+            "devPeak": _f(r.get("dev_peak")),
+            "devTrend": (str(r.get("dev_trend")) if pd.notna(r.get("dev_trend")) else None),
             "met": int(r.get("conditions_met", 0) or 0),
             "pass": bool(r.get("PASS", False)),
             "fails": fails,
@@ -304,6 +315,8 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
      padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{opacity:.88}
+#pdf.btn{background:#c0343b;border-color:#c0343b;color:#fff;font-weight:800}
+#excelBtn.btn{background:#1a7f37;border-color:#1a7f37;color:#fff;font-weight:800}
 .btn-outline{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
      border-radius:7px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;
      font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
@@ -394,6 +407,10 @@ input[type=search]{border:1px solid var(--line);border-radius:7px;padding:7px 11
   font-size:13px;font-family:inherit;min-width:150px;background:var(--surface);color:var(--ink)}
 .vcp-filter{border:1px solid var(--line);border-radius:7px;padding:7px 11px;
   font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);cursor:pointer}
+.help-btn{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink-2);font-size:12px;font-weight:700;
+  cursor:pointer;padding:0;line-height:1}
+.help-btn:hover{background:#F2F5F8;color:var(--ink)}
 .filtered-count{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--ink-2);
   white-space:nowrap}
 label.rs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
@@ -404,6 +421,8 @@ button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(
 .tbl-scroll{max-height:52vh;overflow-y:auto;overflow-x:auto;background:var(--surface);
   border:1px solid var(--line);border-radius:10px;-webkit-overflow-scrolling:touch}
 .tbl-note{text-align:right;font-size:10.5px;color:#111;margin-bottom:4px}
+.cap-toggle{width:auto;height:auto;border-radius:5px;padding:2px 8px;
+  font-size:10px;margin-left:6px;vertical-align:middle}
 table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface)}
 /* VCP 컬럼이 추가돼 컬럼 수가 많아지면, 표를 화면 폭에 욱여넣어 자르지
    말고 가로로 넓혀서 스크롤되게 한다 (min-width가 화면보다 크면 .tbl-scroll이
@@ -426,6 +445,9 @@ tbody tr.sel{background:#EEF3F8}
 .badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
        background:#F0F2F5;color:var(--ink-2);margin-left:4px;font-weight:600;cursor:help}
 .badge.p{background:var(--up);color:#fff;cursor:default}
+.hot-warn{display:inline-block;width:15px;height:15px;line-height:15px;text-align:center;
+  border-radius:50%;background:#c0343b;color:#fff;font-size:10px;font-weight:800;
+  margin-left:4px;cursor:help}
 
 /* VCP 뱃지 */
 .vcp-cell{line-height:1.3}
@@ -499,7 +521,7 @@ tbody tr.sel{background:#EEF3F8}
 .railnum.out{color:var(--muted)}        /* 조건7 미달 */
 
 /* 시그니처: 52주 고점 근접도 트랙 (조건7 = 고점 -25% 이내) */
-.rail{position:relative;width:60px;height:16px;margin-left:auto}
+.rail{position:relative;width:44px;height:16px;margin-left:auto}
 .rail .track{position:absolute;top:7px;left:0;right:0;height:2px;background:var(--rail)}
 .rail .zone{position:absolute;top:5px;right:0;width:100%;height:6px;
             background:linear-gradient(90deg,rgba(192,52,59,0) 0%,rgba(192,52,59,.16) 100%)}
@@ -719,6 +741,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       </div>
       <a id="manualRun" class="btn btn-outline" href="__ACTIONS_URL__" target="_blank" rel="noopener">수동 조회</a>
       <button id="pdf" class="btn">PDF</button>
+      <button id="excelBtn" class="btn">Excel</button>
     </div>
   </div>
   <div class="basis-row">
@@ -769,6 +792,16 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <option value="extended">확장(과열)</option>
     <option value="no_pattern">패턴없음</option>
   </select>
+  <select id="devDaysFilter" aria-label="이격 지속일수 필터" class="vcp-filter">
+    <option value="">이격 지속일수: 전체</option>
+    <option value="1-4">1~4일 (초기)</option>
+    <option value="5-15">5~15일 (재베이스 관찰)</option>
+    <option value="16-9999">16일 이상 (장기 확장)</option>
+  </select>
+  <button id="devDaysHelpBtn" class="help-btn" aria-label="이격 지속일수 설명" title="이격 지속일수란?">?</button>
+  <label class="rs" style="gap:5px">
+    <input type="checkbox" id="hideOverheated"> 수급과열 숨기기
+  </label>
   <input type="search" id="q" placeholder="종목 검색" aria-label="종목 검색">
   <span id="filteredCount" class="filtered-count" aria-live="polite"></span>
 </div>
@@ -817,6 +850,37 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
   <button id="filterInfoBtn" class="filter-btn">필터링 기준 보기</button>
 </div>
 </footer>
+</div>
+
+<div id="devDaysInfoOverlay" class="modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="devDaysInfoTitle">
+    <div class="modal-head">
+      <h2 id="devDaysInfoTitle">이격 지속일수란?</h2>
+      <div class="modal-head-btns">
+        <button id="devDaysInfoClose" class="btn-sm">닫기</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <h3>이격(%)이란</h3>
+      <p>종가가 50일 이동평균선(최근 50거래일 평균 가격)보다 몇 % 위에 있는지를 나타냅니다. "이격 +20%"면 최근 두 달여 평균가보다 20% 비싸게 거래되고 있다는 뜻입니다.</p>
+
+      <h3>이격 지속일수 계산 방법</h3>
+      <p>최근 <b>60거래일</b>(약 3개월) 중, 이격이 <b>±15%</b>를 넘은 날이 <b>총 몇 번</b>이었는지 셉니다.</p>
+      <div class="term-box">
+        <b>연속 스트릭이 아닙니다.</b> "오늘부터 며칠 연속 초과 중"이 아니라, 최근 3개월 안에서 "초과한 날을 다 더한 총 횟수"입니다. 중간에 며칠 정상 범위로 돌아왔다가 다시 벌어져도 그 날짜들이 전부 누적됩니다.
+      </div>
+
+      <h3>드롭다운 구간이 의미하는 것</h3>
+      <ul>
+        <li><b>전체</b> — 이격 지속일수와 무관하게 모든 종목</li>
+        <li><b>1~4일 (초기)</b> — 최근 이격이 벌어지기 시작한 지 얼마 안 된 종목</li>
+        <li><b>5~15일 (재베이스 관찰)</b> — 어느 정도 기간 동안 벌어져 있었던 종목. 곧 눌림목(재베이스)이 나올 수 있는지 지켜볼 구간</li>
+        <li><b>16일 이상 (장기 확장)</b> — 오랫동안 평균가에서 멀리 떨어져 거래된 종목</li>
+      </ul>
+
+      <p class="note">위 세 구간은 전부 "1번 이상 초과한 적 있는 종목"만 대상입니다. 최근 60거래일 동안 <b>단 한 번도</b> ±15%를 넘은 적이 없는 종목(이격 지속일수 = 0일)은 세 구간 어디에도 해당하지 않고, "전체"를 선택했을 때만 보입니다. 오류가 아니라 그 종목이 그만큼 변동성 없이 안정적으로 거래돼왔다는 뜻입니다.</p>
+    </div>
+  </div>
 </div>
 
 <div id="runlogOverlay" class="modal-overlay" hidden>
@@ -922,6 +986,59 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
         <li><span class="vr-badge vr-low">0.7배 · 부족</span> — 1.0배 미만. 거래량 없이 오른 것이라 가짜 돌파일 가능성에 주의</li>
       </ul>
       <p class="note">피벗대비%가 진입 범위 안에 있어도, 거래량비율이 "부족"이면 아직 확신하기 이릅니다. "진입가능" 뱃지와 거래량비율을 같이 보고 판단하는 게 안전합니다.</p>
+
+      <h4>회전율 — "실적인가, 단타 수급인가"</h4>
+      <p>같은 폭으로 올라도 성격이 다를 수 있습니다. 거래대금이 시가총액 대비 비정상적으로 크면, 하루 만에 시총만큼 손바뀜이 일어났다는 뜻이라 수급(단타)으로 밀린 자리일 가능성이 높습니다. 이런 상승은 실적 상승과 달리 같은 속도로 되돌아오는 경우가 많습니다. "거래대금" 셀 아래에 회전율(당일 · 5일평균)을 같이 표시합니다.</p>
+      <div class="term-box">
+        <b>계산 방법</b>: 회전율(%) = 당일 거래대금 ÷ 시가총액 × 100
+      </div>
+      <ul>
+        <li>5% 미만 — 정상 범위, 별도 표시 없음</li>
+        <li><span class="ext-caut">5~20%</span> — 주의</li>
+        <li><span class="ext-warn">20% 이상 · 수급과열</span> — 손바뀜이 시총만큼 벌어진 상태, 실적 근거와 별개로 되돌림 위험이 큼</li>
+      </ul>
+      <p class="note">시가총액은 조회 시점의 현재 값이라(과거 이력 없음), 대주주 지분이 큰 종목은 회전율이 실제보다 낮게 나올 수 있습니다.</p>
+
+      <h4>이격 지속일수 — "며칠째 벌어져 있나"</h4>
+      <p>50일선 이격이 며칠째 벌어진 상태인지를 보여줍니다. 연속으로 며칠째가 아니라 <b>최근 60거래일 중 이격 15%를 넘은 날의 총 횟수</b>로 셉니다 — 중간에 하루이틀 눌려도 카운트가 끊기지 않기 때문입니다. 급등 후 이 횟수가 줄어들기 시작하면(↓ 표시) 재베이스(눌림목으로 50일선을 따라잡는 과정)가 진행 중이라는 신호입니다.</p>
+      <p>표에서는 <b>"이격일수"</b> 컬럼에서 확인할 수 있습니다(줄임말). 필터 바 드롭다운 옆 <b>물음표 버튼</b>을 누르면 같은 설명을 다시 볼 수 있습니다.</p>
+      <ul>
+        <li>필터에서 <b>5~15일</b> 범위로 좁히면 재베이스가 진행 중인 종목만 볼 수 있습니다</li>
+        <li><b>16일 이상</b>은 장기간 확장된 상태 — 실적 근거 없이 벌어진 경우가 많습니다</li>
+        <li>↓ 최근 5일간 초과일수가 줄어드는 중(좁혀지는 중) · ↑ 늘어나는 중 · → 변화 없음</li>
+      </ul>
+
+      <h4>50일선 이격% vs 이격일수 — 둘의 차이</h4>
+      <p>이 둘은 "지금 순간의 스냅샷"과 "시간에 걸친 패턴"이라는, 완전히 다른 성격의 정보입니다.</p>
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px;margin:6px 0">
+        <tr>
+          <th style="text-align:left;padding:5px 8px;background:#1B2A4A;color:#fff">구분</th>
+          <th style="text-align:left;padding:5px 8px;background:#1B2A4A;color:#fff">50일선 이격%</th>
+          <th style="text-align:left;padding:5px 8px;background:#1B2A4A;color:#fff">이격일수</th>
+        </tr>
+        <tr><td style="padding:5px 8px;border-bottom:1px solid #EEF1F4">측정 대상</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #EEF1F4"><b>오늘 하루</b>, 현재가가 50일 평균에서 얼마나 떨어져 있는지</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #EEF1F4"><b>최근 60거래일</b>(3개월) 동안 그렇게 떨어진 날이 며칠이나 있었는지</td></tr>
+        <tr><td style="padding:5px 8px;border-bottom:1px solid #EEF1F4">답하는 질문</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #EEF1F4">"지금 얼마나 비싼가?"</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #EEF1F4">"이 상태가 얼마나 오래됐나?"</td></tr>
+        <tr><td style="padding:5px 8px">성격</td>
+            <td style="padding:5px 8px">순간 값 (매일 바뀜)</td>
+            <td style="padding:5px 8px">누적 값 (역사·패턴)</td></tr>
+      </table>
+      <div class="term-box">
+        비유하자면, 이격%는 <b>체온계로 잰 지금 체온</b>이고, 이격일수는 <b>"최근 3개월 중 열이 며칠이나 났었나"</b>입니다. 지금 체온이 정상이어도(이격% 낮음), 최근 계속 열이 났다 내렸다 했다면(이격일수 높음) 완전히 다른 상황입니다.
+      </div>
+      <p><b>이격%만 보면 놓치는 것</b> — 오늘 이격이 마침 낮게 나온 두 종목이 있다고 합시다. A종목은 원래 조용했다가 오늘 처음 벌어졌고(이격일수 0~1일), B종목은 두 달째 벌어졌다 좁혀졌다를 반복하다 오늘 마침 잠깐 좁혀진 겁니다(이격일수 40일). 이격%만 보면 둘 다 "지금은 괜찮네"로 똑같이 보이지만, 실제로는 완전히 다른 종목입니다.</p>
+
+      <p><b>SEPA(VCP) 판단에서 각각 쓰이는 곳</b></p>
+      <ul>
+        <li><b>이격%</b>는 진입 타이밍의 재료입니다 — VCP의 "피벗대비(%)" 계산에 들어가고, 숫자가 너무 크면(예: +30%) "확장(과열)"로 분류돼 진입 후보에서 빠집니다.</li>
+        <li><b>이격일수 16일 이상(장기 확장)</b> — 오랫동안 과열이 안 풀린 종목입니다. 실적 없이 수급으로만 밀린 테마주일 가능성이 크고, VCP가 "진입가능"으로 떠도 한 번 더 의심해봐야 합니다.</li>
+        <li><b>이격일수 5~15일(재베이스 관찰)</b> — 벌어졌다가 지금 막 좁혀지기 시작한 구간. VCP가 요구하는 "눌림목 폭이 좁아지는 패턴"과 정확히 겹치는 구간이라, 가장 눈여겨볼 만한 자리입니다.</li>
+        <li><b>이격일수 0일</b> — 신한지주처럼 애초에 이격이 별로 안 벌어진 종목. 변동성 자체가 낮아서 VCP식 "폭발적 돌파"보다는 안정적인 대형주 특성에 가깝습니다.</li>
+      </ul>
+      <p class="note">둘 중 하나만 고르라면 <b>이격일수가 더 중요합니다.</b> 이격%는 매일 바뀌는 순간값이라 "오늘 우연히 낮게 나온 것"에 속을 수 있지만, 이격일수는 그 종목의 최근 석 달간 성격 자체를 말해줍니다. 실전에서는 ① 이격일수로 "이 종목이 원래 과열형인가, 안정형인가" 먼저 판단하고 ② 그 다음 이격%로 "지금 이 순간이 살 만한 자리인가"를 확인하는 순서로 같이 보는 것이 안전합니다.</p>
 
       <div class="example">
         <h4>📐 직접 검증해보기 — 신한지주(055550) 실제 사례</h4>
@@ -1051,6 +1168,15 @@ const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만,
   idxHost2.innerHTML = renderRow(row2, true);
 })();
 let view="pass", mkt="US", minRS=0, q="", vcpFilter="", sortKey="cap", sortDir=-1, open=null;
+let devDaysFilter="", hideOverheated=false;
+let capInKRW=false;   // 미국 탭 시가총액을 원화(조원)로 환산해서 보여줄지
+
+// 매크로 지표의 "원/달러" 값을 그대로 가져다 쓴다 — 별도로 환율을 다시
+// 받아오지 않고, 화면 상단에 이미 있는 오늘자 환율 하나만 신뢰한다.
+function usdKrwRate(){
+  const row = (MACRO_SNAPSHOT||[]).find(m => m.name === "원/달러");
+  return (row && row.ok) ? row.value : null;
+}
 
 const COLS=[
   ["ticker","종목",""],
@@ -1059,6 +1185,7 @@ const COLS=[
   ["high","52주 고점 대비","rail"],
   ["low","저점대비%","hide-s"],
   ["ma50","50일선<br>이격%","hide-s"],
+  ["devDays","이격일수","hide-s"],
   ["slope","200일선<br>기울기%","hide-s"],
   ["turnover","거래대금","hide-s"],
   ["cap","시가총액","hide-s"],
@@ -1079,6 +1206,19 @@ const fmtMoney=(v,m)=>{
 function fmtCap(v, m){
   if(v==null || isNaN(v)) return "–";
   if(m==="US"){
+    // [2026-09-15] 원화 환산 토글이 켜져 있으면, d.cap(원본 달러 시총)에
+    // 오늘자 원/달러 환율(매크로 지표 값)을 곱해 원화로 바꾼 뒤, 한국
+    // 탭과 똑같은 "1천억원" 단위로 보여준다(단위 표기를 통일해 헷갈리지
+    // 않게 하기 위함). 환율을 못 받아온 날은 달러 표시로 조용히
+    // 되돌아간다(에러 대신).
+    if(capInKRW){
+      const rate = usdKrwRate();
+      if(rate){
+        const krw = v * rate;
+        const u = krw / 1e11;
+        return krw>=1e11 ? Math.round(u).toLocaleString() : u.toFixed(2);
+      }
+    }
     const b = v/1e9;
     return v>=1e12 ? Math.round(b).toLocaleString() : b.toFixed(2);
   }
@@ -1100,6 +1240,39 @@ function ext(v){
   return `<span class="${sign(v)}">${txt}</span>`;
 }
 const num=v=>v==null?"–":v.toLocaleString(undefined,{maximumFractionDigits:2});
+
+// 이격 지속일수 — "최근 60거래일 중 이격이 임계값을 넘은 날의 개수"(연속 스트릭 아님).
+// 중간에 하루이틀 좁혀졌다 다시 벌어져도 카운트가 끊기지 않아, 재베이스 진행
+// 상황을 range 필터("5~15일" 등)로 추적할 수 있다. 50일선 이격% 셀에 병기한다.
+function ma50Cell(v){
+  return ext(v);
+}
+// 이격일수 = 최근 60거래일 중 이격 15% 초과한 날의 총 횟수(연속 스트릭 아님).
+// devTrend: 최근 5일 초과일수가 그 이전 5일보다 좁아지는지(↓)/늘어나는지(↑) 방향.
+function devDaysCell(devDays, devTrend, devPeak){
+  if(devDays==null) return "–";
+  if(devDays===0) return `<span class="vr-normal">0일</span>`;
+  const peakTxt = devPeak==null ? "" : `구간 내 최대 ${devPeak>0?"+":""}${devPeak.toFixed(1)}%`;
+  return `<span title="최근 60거래일 중 이격 15% 초과 · ${peakTxt}">${devDays}일 ${devTrend||""}</span>`;
+}
+
+// 회전율(%) = 거래대금 ÷ 시가총액. 실적이 아니라 수급(단타)으로 밀린 자리는
+// 회전율이 비정상적으로 높다 — 같은 속도로 되돌아오는 경우가 많다.
+const TURNOVER_HOT = 20;    // 이 이상이면 수급과열
+const TURNOVER_CAUT = 5;    // 이 이상이면 주의
+function turnoverCell(raw, market, ratio, ratio5d){
+  const base = fmtMoney(raw, market);
+  if(ratio==null) return base;
+  const r5 = ratio5d==null ? "" : ` · 5일평균 ${ratio5d.toFixed(1)}%`;
+  const title = `당일 회전율 = 거래대금÷시가총액${r5}`;
+  if(ratio>=TURNOVER_HOT){
+    return `${base}<div class="vcp-sub" title="${title}"><span class="ext-warn">회전율 ${ratio.toFixed(1)}% · 수급과열</span></div>`;
+  }
+  if(ratio>=TURNOVER_CAUT){
+    return `${base}<div class="vcp-sub" title="${title}"><span class="ext-caut">회전율 ${ratio.toFixed(1)}%</span></div>`;
+  }
+  return `${base}<div class="vcp-sub" title="${title}">회전율 ${ratio.toFixed(1)}%</div>`;
+}
 
 // VCP 표시용 포맷터
 const VCP_LABEL = {
@@ -1187,6 +1360,12 @@ function filtered(){
     if(d.market!==mkt) return false;
     if(d.rs!=null && d.rs<minRS) return false;
     if(vcpFilter && d.vcp!==vcpFilter) return false;
+    if(devDaysFilter){
+      const [lo,hi]=devDaysFilter.split("-").map(Number);
+      const dd = d.devDays ?? 0;
+      if(dd<lo || dd>hi) return false;
+    }
+    if(hideOverheated && d.turnoverRatio!=null && d.turnoverRatio>=TURNOVER_HOT) return false;
     if(q){
       const s=(d.ticker+" "+d.name).toLowerCase();
       if(!s.includes(q.toLowerCase())) return false;
@@ -1224,11 +1403,20 @@ function render(){
     return;
   }
 
-  let h=`<div class="tbl-note">${capUnitLabel(mkt)}</div>
+  const capNote = mkt==="US"
+    ? (capInKRW
+        ? `<span>* 시가총액(1천억원 기준)</span> <button id="capToggleBtn" class="help-btn cap-toggle" type="button">달러로</button>`
+        : `<span>* 시가총액($1B 기준)</span> <button id="capToggleBtn" class="help-btn cap-toggle" type="button">원화 환산</button>`)
+    : capUnitLabel(mkt);
+  let h=`<div class="tbl-note">${capNote}</div>
     <div class="tbl-scroll"><table><thead><tr>`;
   for(const [k,label,cls] of COLS){
     const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
-    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${label}</th>`;
+    // 시가총액 헤더만 예외적으로 단위를 동적으로 바꿔 보여준다(달러 ↔ 원화 환산).
+    const headLabel = (k==="cap")
+      ? (mkt==="US" ? (capInKRW ? "시가총액<br>(1천억원)" : "시가총액<br>($1B)") : label)
+      : label;
+    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${headLabel}</th>`;
   }
   h+='</tr></thead><tbody>';
 
@@ -1243,20 +1431,27 @@ function render(){
     const badge = d.pass
       ? '<span class="badge p">통과</span>'
       : `<span class="badge" data-tip="1">${d.met}/8</span>`;
+    // [2026-09-15] 수급과열(회전율 TURNOVER_HOT 이상) 경고를 항상 보이는
+    // 종목명 칸에도 표시한다 — 거래대금 칸은 hide-s라 좁은 화면(모바일)에서
+    // 숨겨지는데, 그러면 수급과열 경고 자체를 놓치게 되기 때문이다.
+    const hotWarn = (d.turnoverRatio!=null && d.turnoverRatio>=TURNOVER_HOT)
+      ? `<span class="hot-warn" title="회전율 ${d.turnoverRatio.toFixed(1)}% · 수급과열">!</span>`
+      : "";
 
     h+=`<tr data-t="${d.ticker}" data-m="${d.market}" tabindex="0"${open===d.ticker?' class="sel"':''}>
       <td><span class="star${on?" on":""}" data-fav="${esc(favKey(d))}"
             title="${on?"관심종목에서 제거":"관심종목에 추가"}">${on?"★":"☆"}</span
-        ><span class="cellwrap"><span class="tk">${d.ticker}</span>${badge}
+        ><span class="cellwrap"><span class="tk">${d.ticker}</span>${badge}${hotWarn}
           ${same?"":`<span class="nm" title="${esc(d.name)}">${nm}</span>`}
           <span class="tip">${tipBody}</span></span></td>
       <td class="num">${num(d.price)}</td>
       <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
       <td>${rail(d.high)}</td>
       <td class="num hide-s ${sign(d.low)}">${num(d.low)}</td>
-      <td class="num hide-s">${ext(d.ma50)}</td>
+      <td class="num hide-s">${ma50Cell(d.ma50)}</td>
+      <td class="num hide-s">${devDaysCell(d.devDays, d.devTrend, d.devPeak)}</td>
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
-      <td class="num hide-s">${fmtMoney(d.turnover,d.market)}</td>
+      <td class="num hide-s">${turnoverCell(d.turnover, d.market, d.turnoverRatio, d.turnoverRatio5d)}</td>
       <td class="num hide-s">${fmtCap(d.cap,d.market)}</td>
       <td class="num hide-s">${pivotCell(d.pivot, d.pivotPrice)}</td>
       <td class="num hide-s">${d.legs==null?"–":d.legs+"개"}</td>
@@ -1465,6 +1660,30 @@ document.getElementById("chartClose").addEventListener("click",()=>{
   });
 })();
 
+// ── 미국 시가총액 원화 환산 토글 ──────────────────────────
+// 표가 render()마다 통째로 다시 그려지므로, 버튼도 매번 새로 만들어진다.
+// 직접 바인딩하면 다음 렌더에서 리스너가 날아가므로 document에 위임한다.
+document.addEventListener("click", e=>{
+  if(e.target && e.target.id==="capToggleBtn"){
+    capInKRW = !capInKRW;
+    render();
+  }
+});
+
+// ── 이격 지속일수 설명 팝업 ────────────────────────────────
+(function(){
+  const btn = document.getElementById("devDaysHelpBtn");
+  const overlay = document.getElementById("devDaysInfoOverlay");
+  const closeBtn = document.getElementById("devDaysInfoClose");
+  if(!btn || !overlay) return;
+  const open = () => { overlay.hidden = false; };
+  const close = () => { overlay.hidden = true; };
+  btn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+})();
+
 // ── 실행 기록 팝업 ────────────────────────────────────────
 (function(){
   const btn = document.getElementById("runlogBtn");
@@ -1584,9 +1803,76 @@ document.getElementById("rs").addEventListener("input",e=>{
 });
 document.getElementById("q").addEventListener("input",e=>{q=e.target.value;render();});
 document.getElementById("vcpFilter").addEventListener("change",e=>{vcpFilter=e.target.value;render();});
+document.getElementById("devDaysFilter").addEventListener("change",e=>{devDaysFilter=e.target.value;render();});
+document.getElementById("hideOverheated").addEventListener("change",e=>{hideOverheated=e.target.checked;render();});
 
 // PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
 document.getElementById("pdf").addEventListener("click",()=>window.print());
+
+// ── Excel 내보내기 ────────────────────────────────────────
+// [2026-09-15] SheetJS 등 외부 라이브러리를 CDN에서 받아오지 않는다
+// (PDF 버튼과 같은 이유 — 오프라인이면 깨진다). 대신 Excel이 예전부터
+// 인식해온 "HTML 표를 .xls 확장자로 저장" 방식을 쓴다. 실제로는 HTML
+// 파일이지만 Excel이 열 때 표로 인식해서 정상적인 스프레드시트가 된다.
+//
+// 화면에 보이는 배지·툴팁·막대그래프 HTML을 그대로 뽑지 않고, 각 컬럼의
+// 실제 값만 깔끔한 텍스트로 다시 구성한다 — 화면용 마크업은 Excel에서
+// 안 열리거나 지저분하게 들어간다.
+function excelRowValues(d){
+  const vcpText = d.vcp==null ? "" : (VCP_LABEL[d.vcp] || d.vcp);
+  const volRatioText = d.volRatio==null ? "" :
+    `${d.volRatio}배 (${VOL_RATIO_LABEL[d.volRatioLabel]||""})`;
+  const devDaysText = d.devDays==null ? "" : `${d.devDays}일 ${d.devTrend||""}`;
+  const turnoverRatioText = d.turnoverRatio==null ? "" : ` (회전율 ${d.turnoverRatio.toFixed(1)}%)`;
+  return [
+    d.name && d.name!==d.ticker ? `${d.name}(${d.ticker})` : d.ticker,
+    d.price ?? "",
+    d.rs ?? "",
+    d.high==null ? "" : `${d.high}%`,
+    d.low==null ? "" : d.low,
+    d.ma50==null ? "" : `${d.ma50}%`,
+    devDaysText,
+    d.slope ?? "",
+    fmtMoney(d.turnover, d.market) + turnoverRatioText,
+    fmtCap(d.cap, d.market),
+    d.pivot==null ? "" : `${d.pivot}%`,
+    d.legs==null ? "" : `${d.legs}개`,
+    d.risk==null ? "" : `${d.risk}%`,
+    vcpText,
+    volRatioText,
+  ];
+}
+function exportExcel(){
+  const data = filtered();
+  const headers = ["종목", "현재가", "RS", "52주 고점 대비", "저점대비%", "50일선 이격%",
+    "이격일수", "200일선 기울기%", "거래대금", "시가총액", "피벗대비(%)", "수축",
+    "손절리스크%", "VCP", "거래량비율"];
+
+  let html = "\ufeff";  // UTF-8 BOM — 없으면 Excel이 한글을 깨서 연다
+  html += '<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+        + 'xmlns:x="urn:schemas-microsoft-com:office:excel" '
+        + 'xmlns="http://www.w3.org/TR/REC-html40">';
+  html += '<head><meta charset="UTF-8"></head><body><table border="1">';
+  html += "<tr>" + headers.map(h=>`<th>${h}</th>`).join("") + "</tr>";
+  for(const d of data){
+    const cells = excelRowValues(d);
+    html += "<tr>" + cells.map(c=>`<td>${esc(String(c))}</td>`).join("") + "</tr>";
+  }
+  html += "</table></body></html>";
+
+  const blob = new Blob([html], {type: "application/vnd.ms-excel;charset=utf-8"});
+  const viewLabel = {pass:"통과", near:"관찰", all:"전체", fav:"관심"}[view] || view;
+  const dateTag = (CURRENT.match(/(\\d{8}(_[A-Z]+)?)/) || [""])[0];
+  const fname = `SEPA_${mkt}_${viewLabel}_${dateTag}.xls`.replace(/\\s+/g, "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+document.getElementById("excelBtn").addEventListener("click", exportExcel);
 
 // 날짜·세션 선택: 실제 데이터가 있는 조합만 이동, 없으면 안내만 하고 되돌림
 (async function(){

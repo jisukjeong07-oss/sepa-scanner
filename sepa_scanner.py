@@ -72,6 +72,14 @@ MIN_PRICE_US = 10.0
 MIN_TURNOVER_KR = 5_000_000_000   # 20일 평균 거래대금 50억원 이상
 MIN_DOLLAR_VOL_US = 10_000_000    # 20일 평균 거래대금 $10M 이상
 
+# 이격 지속일수 판정 기준.
+# [2026-09-15] "50일선에서 며칠째 벌어져 있나"를 보려는 목적. 연속 스트릭이 아니라
+# 최근 DEV_LOOKBACK거래일 중 |이격| > DEV_THRESHOLD 인 날의 '총 횟수'로 센다.
+# 연속으로 세면 하루만 눌려도 카운트가 0으로 리셋돼 재베이스 진행 상황을 놓친다.
+# 누적 횟수는 그런 흔들림에 끊기지 않고, 대시보드에서 "5~15일" 식 범위 필터가 가능하다.
+DEV_THRESHOLD = 15.0
+DEV_LOOKBACK = 60
+
 
 # ═════════════════════════════════════════════════════════════
 # 1. 데이터 수집
@@ -472,12 +480,89 @@ def rs_rating(close: pd.DataFrame) -> pd.Series:
 
 
 # ═════════════════════════════════════════════════════════════
+# 2.5 회전율 · 이격 지속일수
+# [2026-09-15] 9/8~9/15 브리핑에서 반도체 후공정·저유동성 테마주를 분석하며
+# 나온 요구사항. "얼마나 올랐나"만으로는 실적 기반 상승과 단타 수급을
+# 구분할 수 없어서, 회전율(수급 과열 판별)과 이격 지속일수(재베이스 타이밍
+# 판별)를 추가한다.
+# ═════════════════════════════════════════════════════════════
+
+def deviation_days(close: pd.DataFrame, ma50: pd.DataFrame,
+                    threshold: float = DEV_THRESHOLD,
+                    lookback: int = DEV_LOOKBACK) -> pd.DataFrame:
+    """
+    50일선 이격이 최근 lookback거래일 중 며칠이나 threshold%를 넘었는지.
+
+    반환 컬럼:
+      dev_days      최근 lookback거래일 중 |이격| > threshold 인 날의 개수
+      dev_days_now  오늘도 초과 중인지(bool)
+      dev_peak      그 구간 내 최대 |이격|%
+      dev_trend     최근 5일 초과일수 vs 그 이전 5일 초과일수 방향 ("↓"/"→"/"↑")
+                    "↓"면 좁혀지는 중 — 재베이스가 진행되고 있다는 신호.
+
+    50일선이 아직 없는 종목(상장 50일 미만 등)은 전부 None으로 채운다.
+    """
+    dev_pct = (close / ma50 - 1) * 100
+    window = dev_pct.tail(lookback)
+    exceed = window.abs() > threshold
+
+    dev_days = exceed.sum(axis=0)
+    dev_days_now = exceed.iloc[-1]
+    dev_peak = window.abs().max(axis=0).round(1)
+
+    last5 = exceed.tail(5).sum(axis=0)
+    if len(exceed) >= 10:
+        prev5 = exceed.tail(10).head(5).sum(axis=0)
+    else:
+        prev5 = pd.Series(0, index=exceed.columns)
+    dev_trend = pd.Series(
+        np.where(last5 < prev5, "↓", np.where(last5 > prev5, "↑", "→")),
+        index=exceed.columns,
+    )
+
+    out = pd.DataFrame({
+        "dev_days": dev_days,
+        "dev_days_now": dev_days_now,
+        "dev_peak": dev_peak,
+        "dev_trend": dev_trend,
+    }).astype(object)   # None을 섞어 넣을 것이므로 처음부터 object dtype으로
+    no_data = ma50.iloc[-1].isna()
+    out.loc[no_data, :] = None
+    return out
+
+
+def add_turnover_ratio(r: pd.DataFrame) -> pd.DataFrame:
+    """
+    회전율(%) = 당일(또는 5일평균) 거래대금 ÷ 시가총액 × 100.
+    호출 시점에 r["market_cap"]이 이미 채워져 있어야 한다(run()에서 KR/US
+    각각 market_cap을 붙인 직후 호출).
+
+    한계 2가지:
+      - market_cap은 조회 '현재' 시점 값이라 과거 이력이 없다. 5일평균도
+        이 현재 시총 하나로 나누므로, 그 며칠 사이 유상증자·감자 등으로
+        시총이 크게 바뀐 종목은 오차가 커진다.
+      - 대주주 지분 비중이 큰 종목은 분모(전체 시총)가 실제 유동주식수보다
+        커서 회전율이 실제보다 낮게 나온다. free float 데이터가 없어
+        현재는 보정하지 않는다.
+    """
+    cap = r["market_cap"]
+    r["turnover_ratio"] = (r["trade_value_today"] / cap * 100).round(2)
+    r["turnover_ratio_5d"] = (r["trade_value_5d_avg"] / cap * 100).round(2)
+    return r
+
+
+# ═════════════════════════════════════════════════════════════
 # 3. 트렌드템플릿 8조건 스캔
 # ═════════════════════════════════════════════════════════════
 
 def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
-           min_turnover: float = None) -> pd.DataFrame:
-    """min_turnover: 20일 평균 거래대금 하한. None이면 시장별 기본 상수를 쓴다."""
+           min_turnover: float = None,
+           dev_threshold: float = DEV_THRESHOLD,
+           dev_lookback: int = DEV_LOOKBACK) -> pd.DataFrame:
+    """
+    min_turnover: 20일 평균 거래대금 하한. None이면 시장별 기본 상수를 쓴다.
+    dev_threshold, dev_lookback: 이격 지속일수 판정 기준 (deviation_days() 참고).
+    """
     close, value = data["close"], data["value"]
     high, low = data.get("high"), data.get("low")
 
@@ -562,6 +647,16 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     })
     result = pd.concat([result, conds], axis=1)
 
+    # [2026-09-15] 회전율용 원값. 시가총액(market_cap)은 run()에서 나중에
+    # 붙으므로, 실제 비율(turnover_ratio) 계산은 add_turnover_ratio()가 담당한다.
+    result["trade_value_today"] = value.iloc[-1].round(0)
+    result["trade_value_5d_avg"] = value.rolling(5).mean().iloc[-1].round(0)
+
+    # [2026-09-15] 이격 지속일수 — "이번 상승이 재베이스 없이 계속 벌어지는
+    # 중인지, 눌림으로 좁혀지는 중인지"를 판별하기 위함.
+    dev_stats = deviation_days(close, ma50, threshold=dev_threshold, lookback=dev_lookback)
+    result = result.join(dev_stats)
+
     # [2026-09-13] VCP(변동성 수축 패턴) 분석 — 통과(8)·관찰(7)만 계산한다.
     # 전체 유니버스(수천 종목)에 다 돌리면 느려지고, 애초에 8조건도 다 못
     # 채운 종목은 VCP를 볼 이유가 없다.
@@ -617,7 +712,8 @@ def us_market_caps(tickers, sleep_sec: float = 0.25) -> dict:
 
 
 def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
-        min_turnover_kr: float = None, min_turnover_us: float = None) -> pd.DataFrame:
+        min_turnover_kr: float = None, min_turnover_us: float = None,
+        dev_threshold: float = DEV_THRESHOLD, dev_lookback: int = DEV_LOOKBACK) -> pd.DataFrame:
     """
     as_of: 'YYYYMMDD'. 주면 그 날짜를 '오늘'인 것처럼 취급해 과거 시점을 스캔한다
     (백필용). 안 주면 실제 오늘 날짜로 스캔한다.
@@ -669,7 +765,8 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                     print(f"[KR] KRX Open API 고속 경로 실패({str(e)[:150]}) "
                           f"→ 기존 FDR 방식(종목별 조회)으로 폴백합니다.")
                     data = fetch_kr_fdr(start, end)
-                r = screen(data, "KR", min_rs, min_turnover_kr)
+                r = screen(data, "KR", min_rs, min_turnover_kr,
+                           dev_threshold=dev_threshold, dev_lookback=dev_lookback)
                 # [2026-09-13] 예전엔 PASS(8조건 통과) 종목만 이름을 조회해서
                 # 관찰·전체 탭의 종목명이 NaN으로 떴다. fdr_names()는
                 # kr_listing() 캐시 하나로 이름을 붙이는 로컬 조회라 종목
@@ -677,11 +774,16 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                 r.insert(0, "name", pd.Series(fdr_names(r.index)))
                 # 시가총액: 상장목록을 다시 부를 필요 없이 캐시에서 바로 붙인다 (추가 호출 없음)
                 r["market_cap"] = pd.Series(kr_market_caps(r.index))
+                r = add_turnover_ratio(r)   # market_cap이 방금 붙었으니 여기서 회전율 계산
             else:
                 data = fetch_kr(start, end)
-                r = screen(data, "KR", min_rs, min_turnover_kr)
+                r = screen(data, "KR", min_rs, min_turnover_kr,
+                           dev_threshold=dev_threshold, dev_lookback=dev_lookback)
                 r.insert(0, "name", pd.Series(kr_names(r.index)))
                 r["market_cap"] = None
+                # market_cap이 없어 회전율 계산 불가 — 컬럼 자체는 만들어 None으로 채운다
+                r["turnover_ratio"] = None
+                r["turnover_ratio_5d"] = None
             results.append(r)
         except Exception as e:
             # 한국 쪽이 KRX 차단 등으로 실패해도 미국 스캔·리포트는 살려야 한다.
@@ -697,7 +799,8 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
         try:
             tickers = us_universe()
             data = fetch_us(tickers, start=start, end=end)
-            r = screen(data, "US", min_rs, min_turnover_us)
+            r = screen(data, "US", min_rs, min_turnover_us,
+                       dev_threshold=dev_threshold, dev_lookback=dev_lookback)
             r.insert(0, "name", pd.Series(us_names(r.index)))
             # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
             # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
@@ -705,6 +808,9 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             print(f"[US] 시가총액 조회: {len(focus)}종목 (통과+관찰 범위로 축소)")
             caps = us_market_caps(list(focus))
             r["market_cap"] = pd.Series({**{t: None for t in r.index}, **caps})
+            # market_cap이 없는(시총 조회 범위 밖) 종목은 NaN÷NaN이 되어
+            # 자동으로 회전율도 None이 된다 — 별도 예외처리 불필요.
+            r = add_turnover_ratio(r)
             results.append(r)
         except Exception as e:
             us_error = e
@@ -772,6 +878,10 @@ if __name__ == "__main__":
     ap.add_argument("--min-dollar-vol", type=float, default=None, metavar="백만달러",
                     help=f"미국 종목 20일 평균 거래대금 하한(백만 달러). "
                          f"생략하면 기본 {MIN_DOLLAR_VOL_US/1e6:.0f}백만 달러.")
+    ap.add_argument("--dev-threshold", type=float, default=DEV_THRESHOLD, metavar="%",
+                    help=f"이격 지속일수 판정 임계값(%%). 생략하면 기본 {DEV_THRESHOLD}")
+    ap.add_argument("--dev-lookback", type=int, default=DEV_LOOKBACK, metavar="거래일",
+                    help=f"이격 지속일수 계산 구간(거래일). 생략하면 기본 {DEV_LOOKBACK}")
     a = ap.parse_args()
 
     # 입력 단위(억원 / 백만달러)를 내부 단위(원 / 달러)로 환산
@@ -779,4 +889,5 @@ if __name__ == "__main__":
     us_min = None if a.min_dollar_vol is None else a.min_dollar_vol * 1e6
 
     run(a.market, a.min_rs, a.kr_source, as_of=a.date,
-        min_turnover_kr=kr_min, min_turnover_us=us_min)
+        min_turnover_kr=kr_min, min_turnover_us=us_min,
+        dev_threshold=a.dev_threshold, dev_lookback=a.dev_lookback)
