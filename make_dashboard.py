@@ -315,8 +315,8 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:7px;
      padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn:hover{opacity:.88}
-#pdf.btn{background:#c0343b;border-color:#c0343b;color:#fff;font-weight:800}
-#excelBtn.btn{background:#1a7f37;border-color:#1a7f37;color:#fff;font-weight:800}
+#pdf.btn{background:#000;border-color:#000;color:#fff;font-weight:800}
+#excelBtn.btn{background:#000;border-color:#000;color:#fff;font-weight:800}
 .btn-outline{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
      border-radius:7px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;
      font-family:inherit;text-decoration:none;display:inline-flex;align-items:center}
@@ -414,7 +414,7 @@ input[type=search]{border:1px solid var(--line);border-radius:7px;padding:7px 11
 .filtered-count{margin-left:auto;font-size:12.5px;font-weight:700;color:var(--ink-2);
   white-space:nowrap}
 label.rs{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
-input[type=range]{width:120px;accent-color:var(--up)}
+input[type=range]{width:80px;accent-color:var(--up)}
 button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(--up);outline-offset:2px}
 
 /* 표 — 높이를 제한하고 내부에서만 스크롤, 헤더는 위에 고정 */
@@ -792,13 +792,15 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <option value="extended">확장(과열)</option>
     <option value="no_pattern">패턴없음</option>
   </select>
-  <select id="devDaysFilter" aria-label="이격 지속일수 필터" class="vcp-filter">
-    <option value="">이격 지속일수: 전체</option>
-    <option value="1-4">1~4일 (초기)</option>
-    <option value="5-15">5~15일 (재베이스 관찰)</option>
-    <option value="16-9999">16일 이상 (장기 확장)</option>
-  </select>
-  <button id="devDaysHelpBtn" class="help-btn" aria-label="이격 지속일수 설명" title="이격 지속일수란?">?</button>
+  <span style="display:flex;align-items:center;gap:4px">
+    <select id="devDaysFilter" aria-label="이격 지속일수 필터" class="vcp-filter">
+      <option value="">이격 지속일수: 전체</option>
+      <option value="1-4">1~4일 (초기)</option>
+      <option value="5-15">5~15일 (재베이스 관찰)</option>
+      <option value="16-9999">16일 이상 (장기 확장)</option>
+    </select>
+    <button id="devDaysHelpBtn" class="help-btn" aria-label="이격 지속일수 설명" title="이격 지속일수란?">?</button>
+  </span>
   <label class="rs" style="gap:5px">
     <input type="checkbox" id="hideOverheated"> 수급과열 숨기기
   </label>
