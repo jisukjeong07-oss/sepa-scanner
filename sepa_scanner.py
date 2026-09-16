@@ -784,6 +784,30 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                 # market_cap이 없어 회전율 계산 불가 — 컬럼 자체는 만들어 None으로 채운다
                 r["turnover_ratio"] = None
                 r["turnover_ratio_5d"] = None
+
+            # [2026-09-16] 스팩(기업인수목적회사)은 실제 사업이 없는 페이퍼컴퍼니라
+            # SEPA/VCP가 전제하는 "추세를 만드는 실제 매출·이익 성장"이 애초에
+            # 없다. 한국 스팩은 규정상 사명에 반드시 "스팩"이 들어가므로
+            # (예: "삼성스팩13호", "미래에셋비전스팩10호") 이름으로 안전하게
+            # 걸러낼 수 있다. 실사례: 473000·473950이 진입가능으로 잘못 잡혔다.
+            spac_mask = r["name"].astype(str).str.contains("스팩", na=False)
+            if spac_mask.any():
+                spac_list = r.loc[spac_mask, "name"].tolist()
+                print(f"[KR] 스팩 {spac_mask.sum()}종목 유니버스에서 제외: "
+                      f"{', '.join(spac_list)}")
+                r = r.loc[~spac_mask]
+
+            # [2026-09-15] 업종 분류 — 가격 수집 경로(고속/폴백)와 무관하게
+            # 한 번만 붙인다. 실패해도(pykrx 없음, 네트워크 문제 등) 전체
+            # 스캔이 죽지 않도록 별도로 감싼다 — 이건 부가 정보다.
+            try:
+                from sector_data import fetch_kr_sector_map
+                sector_map = fetch_kr_sector_map()
+                r["sector"] = r.index.map(sector_map.get) if sector_map else None
+            except Exception as e:
+                print(f"[업종분류] 건너뜀(표는 정상 생성됨): {str(e)[:150]}")
+                r["sector"] = None
+
             results.append(r)
         except Exception as e:
             # 한국 쪽이 KRX 차단 등으로 실패해도 미국 스캔·리포트는 살려야 한다.

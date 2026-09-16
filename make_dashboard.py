@@ -115,6 +115,7 @@ def _rows(df: pd.DataFrame) -> list:
             "slope": _f(r.get("MA200_slope_%")),
             "turnover": turnover,
             "cap": cap,
+            "sector": (str(r.get("sector")) if pd.notna(r.get("sector")) else None),
             "turnoverRatio": _f(r.get("turnover_ratio")),
             "turnoverRatio5d": _f(r.get("turnover_ratio_5d")),
             "devDays": (int(dev_days_raw) if pd.notna(dev_days_raw) else None),
@@ -332,7 +333,18 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 .macro-collapse-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink-2);
   border-radius:6px;padding:4px 12px;font-size:11.5px;cursor:pointer;font-family:inherit}
 .macro-collapse-btn:hover{background:#F2F5F8;color:var(--ink)}
+.sector-panel .seg button{font-size:11.5px;padding:5px 10px}
+.treemap-view{overflow-x:auto}
+.treemap-view svg{display:block;width:100%;height:auto;max-width:100%}
+.treemap-view rect{cursor:pointer;stroke:#fff;stroke-width:1.5}
+.treemap-view rect:hover{opacity:.85}
+.treemap-view text{pointer-events:none;font-family:inherit}
+#sectorTable th{background:#1B2A4A;color:#fff;padding:7px 8px;font-size:11px}
+#sectorTable td{padding:7px 8px;font-size:12px;border-bottom:1px solid #EEF1F4}
+#sectorTable tr[data-sector]{cursor:pointer}
+#sectorTable tr[data-sector]:hover{background:#F7F9FB}
 #macroCollapseBody.collapsed{display:none}
+#sectorCollapseBody.collapsed{display:none}
 .idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .idx-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
 .idx-card .nm{font-size:11.5px;color:var(--ink-2)}
@@ -420,6 +432,14 @@ button:focus-visible,input:focus-visible,tr:focus-visible{outline:2px solid var(
 /* 표 — 높이를 제한하고 내부에서만 스크롤, 헤더는 위에 고정 */
 .tbl-scroll{max-height:52vh;overflow-y:auto;overflow-x:auto;background:var(--surface);
   border:1px solid var(--line);border-radius:10px;-webkit-overflow-scrolling:touch}
+/* [2026-09-16] macOS는 스크롤 중이 아니면 스크롤바 자체를 숨긴다 — 그래서
+   가로로 더 볼 수 있다는 걸 눈으로 알아채기 어려웠다. 항상 얇은 스크롤바가
+   보이게 강제한다(크롬·사파리 계열 웹킷 스크롤바, 파이어폭스는 scrollbar-width). */
+.tbl-scroll{scrollbar-width:thin}
+.tbl-scroll::-webkit-scrollbar{height:10px;width:10px}
+.tbl-scroll::-webkit-scrollbar-track{background:#F0F2F5}
+.tbl-scroll::-webkit-scrollbar-thumb{background:#B4B2A9;border-radius:5px}
+.tbl-scroll::-webkit-scrollbar-thumb:hover{background:#888780}
 .tbl-note{text-align:right;font-size:10.5px;color:#111;margin-bottom:4px}
 .cap-toggle{width:auto;height:auto;border-radius:5px;padding:2px 8px;
   font-size:10px;margin-left:6px;vertical-align:middle}
@@ -718,6 +738,45 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
         <div class="macro-h" style="margin-top:16px">시장 폭</div>
         <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
       </section>
+    </div>
+  </div>
+</section>
+
+<section class="macro sector-panel" id="sectorSection" hidden>
+  <div class="macro-idx">
+    <div class="macro-h-row">
+      <div class="macro-h">업종 강도</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="seg" role="group" aria-label="업종 강도 보기">
+          <button data-sectorview="treemap" aria-pressed="true">트리맵</button>
+          <button data-sectorview="table" aria-pressed="false">표</button>
+        </div>
+        <button id="sectorCollapseBtn" class="macro-collapse-btn" aria-expanded="true">닫기</button>
+      </div>
+    </div>
+    <div id="sectorCollapseBody">
+      <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+        업종을 클릭하면 아래 Momentum Watchlist 표가 그 업종 종목만 필터링됩니다. (한국 종목만 해당)
+      </p>
+      <div id="sectorTreemapView">
+        <div id="treemapWrap" class="treemap-view" style="width:100%"></div>
+      </div>
+      <div id="sectorTableView" style="display:none">
+        <div class="tbl-scroll" style="max-height:none">
+          <table id="sectorTable">
+            <thead><tr>
+              <th style="text-align:left">업종</th>
+              <th>종목 수</th>
+              <th>평균 RS</th>
+              <th>8조건 통과율</th>
+              <th>진입가능(VCP)</th>
+              <th>평균 회전율</th>
+            </tr></thead>
+            <tbody id="sectorTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="sectorActiveNote" class="tbl-note" style="text-align:left;margin-top:8px;display:none"></div>
     </div>
   </div>
 </section>
@@ -1171,6 +1230,7 @@ const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만,
 })();
 let view="pass", mkt="US", minRS=0, q="", vcpFilter="", sortKey="cap", sortDir=-1, open=null;
 let devDaysFilter="", hideOverheated=false;
+let activeSector=null, sectorView="treemap";
 let capInKRW=false;   // 미국 탭 시가총액을 원화(조원)로 환산해서 보여줄지
 
 // 매크로 지표의 "원/달러" 값을 그대로 가져다 쓴다 — 별도로 환율을 다시
@@ -1368,6 +1428,11 @@ function filtered(){
       if(dd<lo || dd>hi) return false;
     }
     if(hideOverheated && d.turnoverRatio!=null && d.turnoverRatio>=TURNOVER_HOT) return false;
+    // [2026-09-16] 문자열이 화면엔 똑같이 "금융"으로 보여도, 한쪽은 완성형
+    // (NFC)·다른 쪽은 자모분리형(NFD)일 수 있다(맥OS에서 이 프로젝트가 전에
+    // 파일명으로 겪었던 것과 같은 부류의 문제). normalize("NFC")로 강제
+    // 통일해서 비교해야 "선택은 됐는데 필터링은 하나도 안 되는" 증상을 막는다.
+    if(activeSector && (d.sector||"").normalize("NFC")!==activeSector.normalize("NFC")) return false;
     if(q){
       const s=(d.ticker+" "+d.name).toLowerCase();
       if(!s.includes(q.toLowerCase())) return false;
@@ -1684,6 +1749,187 @@ document.addEventListener("click", e=>{
   closeBtn.addEventListener("click", close);
   overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+})();
+
+// ── 업종 강도 패널 (트리맵 / 표) ────────────────────────────
+// [2026-09-15] sepa_scanner.py가 붙인 실제 sector 필드를 그대로 쓴다.
+// 업종 분류가 하나도 없으면(pykrx 미설치·네트워크 실패 등) 패널 자체를
+// 숨긴다 — 빈 트리맵을 보여주는 것보다 아예 안 보이는 게 덜 헷갈린다.
+(function(){
+  const section = document.getElementById("sectorSection");
+  const hasSectorData = DATA.some(d => d.market==="KR" && d.sector);
+  if(!hasSectorData) return;   // 섹션이 hidden인 채로 남는다
+  section.hidden = false;
+
+  const MAX_SECTORS_SHOWN = 14;   // 업종이 너무 많으면 박스가 잘게 쪼개져 글씨가 잘린다
+
+  function buildSectors(){
+    const kr = DATA.filter(d => d.market === "KR" && d.sector);
+    const groups = {};
+    for(const d of kr){
+      const s = d.sector.normalize("NFC");   // 그룹 나뉨 방지 — 위 필터와 같은 이유
+      (groups[s] = groups[s] || []).push(d);
+    }
+    let sectors = Object.entries(groups).map(([name, items])=>{
+      const n = items.length;
+      const passN = items.filter(d=>d.pass).length;
+      const avgRS = items.reduce((s,d)=>s+(d.rs||0),0) / n;
+      const readyN = items.filter(d=>d.vcp==="entry_ready").length;
+      const ratios = items.filter(d=>d.turnoverRatio!=null).map(d=>d.turnoverRatio);
+      const avgTurnover = ratios.length ? ratios.reduce((a,b)=>a+b,0)/ratios.length : null;
+      return {name, n, passN, passRate: passN/n*100, avgRS, readyN, avgTurnover};
+    }).sort((a,b)=>b.n-a.n);
+
+    if(sectors.length > MAX_SECTORS_SHOWN){
+      const kept = sectors.slice(0, MAX_SECTORS_SHOWN - 1);
+      const rest = sectors.slice(MAX_SECTORS_SHOWN - 1);
+      const n = rest.reduce((s,x)=>s+x.n,0);
+      const passN = rest.reduce((s,x)=>s+x.passN,0);
+      const avgRS = rest.reduce((s,x)=>s+x.avgRS*x.n,0) / n;
+      const readyN = rest.reduce((s,x)=>s+x.readyN,0);
+      const turnoverVals = rest.filter(x=>x.avgTurnover!=null);
+      const avgTurnover = turnoverVals.length
+        ? turnoverVals.reduce((s,x)=>s+x.avgTurnover,0)/turnoverVals.length : null;
+      kept.push({name:"기타", n, passN, passRate: passN/n*100, avgRS, readyN, avgTurnover});
+      sectors = kept;
+    }
+    return sectors;
+  }
+
+  // 단순 이등분 슬라이스 트리맵 — 업종 5~10개 수준에서는 이걸로 충분하다.
+  function flattenLayout(items, x, y, w, h){
+    function rec(arr, x, y, w, h, horiz){
+      if(arr.length === 1) return [{...arr[0], x, y, w, h}];
+      const mid = Math.ceil(arr.length/2);
+      const left = arr.slice(0,mid), right = arr.slice(mid);
+      const total = arr.reduce((s,it)=>s+it.n,0);
+      const leftSum = left.reduce((s,it)=>s+it.n,0);
+      const ratio = total>0 ? leftSum/total : 0.5;
+      if(horiz){
+        const w1 = w*ratio;
+        return [...rec(left, x, y, w1, h, false), ...rec(right, x+w1, y, w-w1, h, false)];
+      } else {
+        const h1 = h*ratio;
+        return [...rec(left, x, y, w, h1, true), ...rec(right, x, y+h1, w, h-h1, true)];
+      }
+    }
+    return rec(items, x, y, w, h, true);
+  }
+
+  // [2026-09-16] 한국 증시 관행(상승=빨강·하락=파랑)에 맞춘다. 이전엔 초록~
+  // 주황 계열이라 "익숙한 관례와 다르다"는 지적을 받았다 — 값 자체(평균 RS)는
+  // 그때도 의미가 있었지만, 색의 방향이 관례와 어긋나 헷갈릴 수 있었다.
+  function rsColor(rs){
+    if(rs>=60) return "#C0343B";   // 강세 — var(--up)과 동일한 빨강
+    if(rs>=40) return "#B4B2A9";   // 변화 없음 — 회색
+    return "#6EC1E4";              // 약세 — 하늘색
+  }
+
+  function renderTreemap(){
+    const sectors = buildSectors();
+    const W = 960, H = 200;
+    const boxes = flattenLayout(sectors, 0, 0, W, H);
+    let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="업종 강도 트리맵">`;
+    for(const b of boxes){
+      const isActive = activeSector === b.name;
+      // 박스가 너무 좁거나 낮으면 글씨가 테두리 밖으로 삐져나가 잘려 보인다.
+      // 그런 박스는 업종명만 남기고 나머지 줄은 아예 안 그린다.
+      const showSub = b.w >= 70 && b.h >= 36;
+      const showThird = b.w >= 90 && b.h >= 54;
+      svg += `<g data-sector="${esc(b.name)}">
+        <rect x="${b.x.toFixed(1)}" y="${b.y.toFixed(1)}" width="${b.w.toFixed(1)}" height="${b.h.toFixed(1)}"
+          fill="${rsColor(b.avgRS)}" ${isActive ? 'stroke="#7ED321" stroke-width="4"' : ''}/>
+        <text x="${(b.x+6).toFixed(1)}" y="${(b.y+16).toFixed(1)}" fill="${isActive?'#FFE24A':'#fff'}" font-size="12" font-weight="700">${esc(b.name)}</text>
+        ${showSub ? `<text x="${(b.x+6).toFixed(1)}" y="${(b.y+31).toFixed(1)}" fill="#fff" font-size="9.5" opacity="0.9">RS ${b.avgRS.toFixed(0)} · 통과 ${b.passN}/${b.n}</text>` : ""}
+        ${(showThird && b.readyN>0) ? `<text x="${(b.x+6).toFixed(1)}" y="${(b.y+45).toFixed(1)}" fill="#fff" font-size="8.5" opacity="0.9">진입가능 ${b.readyN}개</text>` : ""}
+      </g>`;
+    }
+    svg += "</svg>";
+    document.getElementById("treemapWrap").innerHTML = svg;
+    document.querySelectorAll("#treemapWrap g[data-sector]").forEach(g=>{
+      g.addEventListener("click", ()=> toggleSector(g.dataset.sector));
+    });
+  }
+
+  let sectorSortKey = "n", sectorSortDir = -1;
+  const SECTOR_SORT_KEYS = { "업종": "name", "종목 수": "n", "평균 RS": "avgRS",
+    "8조건 통과율": "passRate", "진입가능(VCP)": "readyN", "평균 회전율": "avgTurnover" };
+
+  function renderSectorTable(){
+    const sectors = buildSectors().slice().sort((a,b)=>{
+      const x = a[sectorSortKey], y = b[sectorSortKey];
+      if(x==null) return 1;
+      if(y==null) return -1;
+      if(typeof x === "string") return x.localeCompare(y) * sectorSortDir;
+      return (x-y) * sectorSortDir;
+    });
+    const tbody = document.getElementById("sectorTbody");
+    tbody.innerHTML = sectors.map(s=>{
+      const heat = s.avgTurnover!=null && s.avgTurnover>=TURNOVER_HOT
+        ? `<span class="ext-warn" style="font-size:10px">${s.avgTurnover.toFixed(1)}%</span>`
+        : (s.avgTurnover!=null ? s.avgTurnover.toFixed(1)+"%" : "–");
+      const rowBg = activeSector===s.name ? ' style="background:#FFF8D6"' : "";
+      return `<tr data-sector="${esc(s.name)}"${rowBg}>
+        <td style="text-align:left;font-weight:700">${esc(s.name)}</td>
+        <td class="num">${s.n}개</td>
+        <td class="num"><strong>${s.avgRS.toFixed(0)}</strong></td>
+        <td class="num">${s.passN}/${s.n} (${s.passRate.toFixed(0)}%)</td>
+        <td class="num">${s.readyN>0?`<span style="color:#1a7f37;font-weight:700">${s.readyN}개</span>`:"–"}</td>
+        <td class="num">${heat}</td>
+      </tr>`;
+    }).join("");
+    tbody.querySelectorAll("tr[data-sector]").forEach(tr=>{
+      tr.addEventListener("click", ()=> toggleSector(tr.dataset.sector));
+    });
+  }
+
+  document.querySelectorAll("#sectorTable th").forEach(th=>{
+    th.style.cursor = "pointer";
+    th.addEventListener("click", ()=>{
+      const key = SECTOR_SORT_KEYS[th.textContent.trim()];
+      if(!key) return;
+      if(sectorSortKey === key){ sectorSortDir *= -1; }
+      else { sectorSortKey = key; sectorSortDir = -1; }
+      renderSectorTable();
+    });
+  });
+
+  function toggleSector(name){
+    activeSector = (activeSector === name) ? null : name;
+    const note = document.getElementById("sectorActiveNote");
+    if(activeSector){
+      note.style.display = "block";
+      note.innerHTML = `<b>"${esc(activeSector)}"</b> 업종만 표시 중 — 다시 클릭하면 해제됩니다.`;
+    } else {
+      note.style.display = "none";
+    }
+    // 업종 필터는 한국 종목 기준이라, 시장 탭도 자연스럽게 한국으로 맞춘다.
+    view = "all"; mkt = "KR";
+    document.querySelectorAll('.seg[aria-label="구분"] button').forEach(b=>b.setAttribute("aria-pressed", b.dataset.view==="all"?"true":"false"));
+    document.querySelectorAll('.seg[aria-label="시장"] button').forEach(b=>b.setAttribute("aria-pressed", b.dataset.mkt==="KR"?"true":"false"));
+    renderTreemap();
+    renderSectorTable();
+    render();
+  }
+
+  document.querySelectorAll('.seg[aria-label="업종 강도 보기"] button').forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      sectorView = btn.dataset.sectorview;
+      document.querySelectorAll('.seg[aria-label="업종 강도 보기"] button')
+        .forEach(b=>b.setAttribute("aria-pressed", b===btn ? "true" : "false"));
+      document.getElementById("sectorTreemapView").style.display = sectorView==="treemap" ? "" : "none";
+      document.getElementById("sectorTableView").style.display = sectorView==="table" ? "" : "none";
+    });
+  });
+
+  document.getElementById("sectorCollapseBtn").addEventListener("click", (e)=>{
+    const body = document.getElementById("sectorCollapseBody");
+    const collapsed = body.classList.toggle("collapsed");
+    e.target.textContent = collapsed ? "펼치기" : "닫기";
+  });
+
+  renderTreemap();
+  renderSectorTable();
 })();
 
 // ── 실행 기록 팝업 ────────────────────────────────────────
