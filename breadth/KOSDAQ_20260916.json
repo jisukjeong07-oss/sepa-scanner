@@ -8,12 +8,12 @@
   "net_hl": -88,
   "above200_pct": 18.85,
   "above50_pct": 54.06,
-  "n_universe": 1865,
+  "n_universe": 1864,
   "n_valid": 1735,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KOSDAQ",
   "data_date": "20260916",
   "source": "live",
-  "generated_at": "2026-09-17T09:05:11"
+  "generated_at": "2026-09-17T22:54:42"
 }
