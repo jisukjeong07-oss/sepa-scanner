@@ -196,6 +196,16 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # 산출물 (파일명에 세션이 붙어 장전/장마감/소급 기록이 각각 남는다)
     pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session,
                                  breadth_summary=breadth_summary)
+    # [2026-09-18] 장전·장마감 리포트를 텔레그램으로 자동 전송. 실패해도
+    # (.env 미설정, 네트워크 문제 등) 대시보드·리포트 생성 자체엔 영향
+    # 없도록 별도로 감싼다 — send_telegram.py 내부에서도 이미 감싸지만,
+    # import 자체가 실패하는 경우(예: requests 미설치)까지 방어한다.
+    try:
+        from send_telegram import send_pdf_report
+        session_label = {"AM": "장전", "PM": "장마감"}.get(session, session)
+        send_pdf_report(pdf_path, f"SEPA 스캔 · {stamp} {session_label}")
+    except Exception as e:
+        print(f"[텔레그램] 건너뜀(리포트는 정상 생성됨): {str(e)[:150]}")
     # data_as_of=scan_stamp: 파일명은 오늘(stamp)로 맞춰도, 대시보드 상단에는
     # 실제 가격 데이터의 기준일을 정확히 보여줘야 한다. 장전 스캔에서 이 둘이
     # 갈라지는 게 "몇 일 종가인지 헷갈린다"는 혼선의 원인이었다.
