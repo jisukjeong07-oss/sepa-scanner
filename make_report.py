@@ -257,6 +257,24 @@ def build(csv_path: str, out_path: str = None, stage2_csv: str = None,
         f"8개 중 7개를 충족한 관찰 종목은 {len(near)}종목입니다.", S["body"]))
     story.append(Spacer(1, 6))
 
+    # [2026-09-18] 표의 "현재가"가 정확히 며칠 종가인지 표지에서 바로
+    # 보이게 한다. PM 세션인데 KRX가 아직 당일 종가를 안 올렸으면
+    # data_date가 파일명 날짜(오늘)보다 하루 전으로 찍히는데, 이 컬럼이
+    # 없던 예전 CSV를 넣어도(구버전 파이프라인 결과 등) 에러 없이 그냥
+    # 안내를 생략하고 넘어간다.
+    if "data_date" in df.columns:
+        date_notes = []
+        for tag, label in [("KR", "한국"), ("US", "미국")]:
+            sub = df[df["market"] == tag]
+            seen = sub["data_date"].dropna().unique()
+            if len(seen) == 1:
+                date_notes.append(f"{label} {seen[0]} 종가 기준")
+            elif len(seen) > 1:
+                date_notes.append(f"{label} {min(seen)}~{max(seen)} 혼재(확인 필요)")
+        if date_notes:
+            story.append(Paragraph(" · ".join(date_notes), S["body"]))
+            story.append(Spacer(1, 6))
+
     if breadth_summary:
         story.append(Paragraph(breadth_summary, S["body"]))
         story.append(Spacer(1, 6))

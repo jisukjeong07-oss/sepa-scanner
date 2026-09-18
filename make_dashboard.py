@@ -747,6 +747,10 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     <div class="macro-h-row">
       <div class="macro-h">업종 강도</div>
       <div style="display:flex;align-items:center;gap:8px">
+        <div class="seg" role="group" aria-label="업종 강도 시장">
+          <button data-sectormkt="KR" aria-pressed="true">한국</button>
+          <button data-sectormkt="US" aria-pressed="false">미국</button>
+        </div>
         <div class="seg" role="group" aria-label="업종 강도 보기">
           <button data-sectorview="treemap" aria-pressed="true">트리맵</button>
           <button data-sectorview="table" aria-pressed="false">표</button>
@@ -755,7 +759,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       </div>
     </div>
     <div id="sectorCollapseBody">
-      <p style="font-size:11px;color:var(--muted);margin:0 0 8px">
+      <p id="sectorHint" style="font-size:11px;color:var(--muted);margin:0 0 8px">
         업종을 클릭하면 아래 Momentum Watchlist 표가 그 업종 종목만 필터링됩니다. (한국 종목만 해당)
       </p>
       <div id="sectorTreemapView">
@@ -1757,16 +1761,19 @@ document.addEventListener("click", e=>{
 // 숨긴다 — 빈 트리맵을 보여주는 것보다 아예 안 보이는 게 덜 헷갈린다.
 (function(){
   const section = document.getElementById("sectorSection");
-  const hasSectorData = DATA.some(d => d.market==="KR" && d.sector);
-  if(!hasSectorData) return;   // 섹션이 hidden인 채로 남는다
+  const krHasSector = DATA.some(d => d.market==="KR" && d.sector);
+  const usHasSector = DATA.some(d => d.market==="US" && d.sector);
+  if(!krHasSector && !usHasSector) return;   // 섹션이 hidden인 채로 남는다
   section.hidden = false;
+
+  let sectorMarket = krHasSector ? "KR" : "US";   // 데이터 있는 쪽을 기본값으로
 
   const MAX_SECTORS_SHOWN = 14;   // 업종이 너무 많으면 박스가 잘게 쪼개져 글씨가 잘린다
 
   function buildSectors(){
-    const kr = DATA.filter(d => d.market === "KR" && d.sector);
+    const rows = DATA.filter(d => d.market === sectorMarket && d.sector);
     const groups = {};
-    for(const d of kr){
+    for(const d of rows){
       const s = d.sector.normalize("NFC");   // 그룹 나뉨 방지 — 위 필터와 같은 이유
       (groups[s] = groups[s] || []).push(d);
     }
@@ -1827,6 +1834,13 @@ document.addEventListener("click", e=>{
 
   function renderTreemap(){
     const sectors = buildSectors();
+    if(sectors.length === 0){
+      document.getElementById("treemapWrap").innerHTML =
+        `<p style="font-size:12px;color:var(--muted);padding:12px 0;margin:0">
+          ${MARKET_LABEL[sectorMarket]} 업종 데이터가 아직 없습니다. 스캔을 한 번 더 돌리면 채워질 수 있습니다.
+        </p>`;
+      return;
+    }
     const W = 960, H = 200;
     const boxes = flattenLayout(sectors, 0, 0, W, H);
     let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="업종 강도 트리맵">`;
@@ -1864,6 +1878,12 @@ document.addEventListener("click", e=>{
       return (x-y) * sectorSortDir;
     });
     const tbody = document.getElementById("sectorTbody");
+    if(sectors.length === 0){
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px 0">
+        ${MARKET_LABEL[sectorMarket]} 업종 데이터가 아직 없습니다. 스캔을 한 번 더 돌리면 채워질 수 있습니다.
+      </td></tr>`;
+      return;
+    }
     tbody.innerHTML = sectors.map(s=>{
       const heat = s.avgTurnover!=null && s.avgTurnover>=TURNOVER_HOT
         ? `<span class="ext-warn" style="font-size:10px">${s.avgTurnover.toFixed(1)}%</span>`
@@ -1903,14 +1923,37 @@ document.addEventListener("click", e=>{
     } else {
       note.style.display = "none";
     }
-    // 업종 필터는 한국 종목 기준이라, 시장 탭도 자연스럽게 한국으로 맞춘다.
-    view = "all"; mkt = "KR";
+    // 업종 필터는 지금 선택된 시장(sectorMarket) 기준이라, 하단 표의
+    // 시장 탭도 그에 맞춰 전환한다 — 미국 업종을 클릭했는데 하단 표는
+    // 한국만 보이면 필터링이 안 되는 것처럼 보인다.
+    view = "all"; mkt = sectorMarket;
     document.querySelectorAll('.seg[aria-label="구분"] button').forEach(b=>b.setAttribute("aria-pressed", b.dataset.view==="all"?"true":"false"));
-    document.querySelectorAll('.seg[aria-label="시장"] button').forEach(b=>b.setAttribute("aria-pressed", b.dataset.mkt==="KR"?"true":"false"));
+    document.querySelectorAll('.seg[aria-label="시장"] button').forEach(b=>b.setAttribute("aria-pressed", b.dataset.mkt===sectorMarket?"true":"false"));
     renderTreemap();
     renderSectorTable();
     render();
   }
+
+  const MARKET_LABEL = {KR:"한국", US:"미국"};
+  function updateSectorHint(){
+    document.getElementById("sectorHint").textContent =
+      `업종을 클릭하면 아래 Momentum Watchlist 표가 그 업종 종목만 필터링됩니다. (${MARKET_LABEL[sectorMarket]} 종목만 해당)`;
+  }
+
+  document.querySelectorAll('.seg[aria-label="업종 강도 시장"] button').forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      if(btn.dataset.sectormkt === sectorMarket) return;
+      sectorMarket = btn.dataset.sectormkt;
+      document.querySelectorAll('.seg[aria-label="업종 강도 시장"] button')
+        .forEach(b=>b.setAttribute("aria-pressed", b===btn ? "true" : "false"));
+      activeSector = null;   // 시장을 바꾸면 이전 시장 업종 선택은 의미가 없어져서 해제
+      document.getElementById("sectorActiveNote").style.display = "none";
+      updateSectorHint();
+      renderTreemap();
+      renderSectorTable();
+    });
+  });
+  updateSectorHint();
 
   document.querySelectorAll('.seg[aria-label="업종 강도 보기"] button').forEach(btn=>{
     btn.addEventListener("click", ()=>{

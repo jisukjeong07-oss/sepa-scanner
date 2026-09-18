@@ -785,6 +785,13 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                 r["turnover_ratio"] = None
                 r["turnover_ratio_5d"] = None
 
+            # [2026-09-18] 이 가격이 정확히 며칠 종가인지 CSV·PDF에 스스로
+            # 남긴다. PM 세션인데 KRX가 아직 당일 종가를 안 올렸으면
+            # data["close"]의 마지막 날짜가 자동으로 전영업일이 되므로,
+            # "오늘 날짜 파일인데 실제로는 어제 종가"인 상황을 이 컬럼
+            # 하나로 구분할 수 있다.
+            r["data_date"] = str(data["close"].index[-1].date())
+
             # [2026-09-16] 스팩(기업인수목적회사)은 실제 사업이 없는 페이퍼컴퍼니라
             # SEPA/VCP가 전제하는 "추세를 만드는 실제 매출·이익 성장"이 애초에
             # 없다. 한국 스팩은 규정상 사명에 반드시 "스팩"이 들어가므로
@@ -826,6 +833,9 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             r = screen(data, "US", min_rs, min_turnover_us,
                        dev_threshold=dev_threshold, dev_lookback=dev_lookback)
             r.insert(0, "name", pd.Series(us_names(r.index)))
+            # [2026-09-18] 한국과 같은 이유 — 이 가격이 며칠(미국 현지 기준)
+            # 종가인지 스스로 남긴다.
+            r["data_date"] = str(data["close"].index[-1].date())
             # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
             # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
             focus = r.index[(r["PASS"]) | (r["conditions_met"] >= 7)]
@@ -835,6 +845,20 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             # market_cap이 없는(시총 조회 범위 밖) 종목은 NaN÷NaN이 되어
             # 자동으로 회전율도 None이 된다 — 별도 예외처리 불필요.
             r = add_turnover_ratio(r)
+
+            # [2026-09-18] 업종 분류(GICS sector) — 한국과 같은 이유로
+            # 실패해도 전체 스캔이 죽지 않도록 감싼다. 시가총액과 달리
+            # "통과+관찰"로 범위를 좁히지 않고 전체 유니버스를 대상으로
+            # 한다 — us_sector_data.py가 30일 캐시를 쓰므로, 매번 새로
+            # 받는 게 아니라 한 달에 한 번 정도만 실제 API를 호출한다.
+            try:
+                from us_sector_data import fetch_us_sector_map
+                us_sector_map = fetch_us_sector_map(list(r.index))
+                r["sector"] = r.index.map(us_sector_map.get) if us_sector_map else None
+            except Exception as e:
+                print(f"[미국 업종분류] 건너뜀(표는 정상 생성됨): {str(e)[:150]}")
+                r["sector"] = None
+
             results.append(r)
         except Exception as e:
             us_error = e
