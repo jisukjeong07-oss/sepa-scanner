@@ -201,9 +201,11 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # 없도록 별도로 감싼다 — send_telegram.py 내부에서도 이미 감싸지만,
     # import 자체가 실패하는 경우(예: requests 미설치)까지 방어한다.
     try:
-        from send_telegram import send_pdf_report
+        from send_telegram import send_pdf_report, send_focus_csv
         session_label = {"AM": "장전", "PM": "장마감"}.get(session, session)
         send_pdf_report(pdf_path, f"SEPA 스캔 · {stamp} {session_label}")
+        send_focus_csv(csv_path,
+                        f"SEPA 통과+관찰 종목 (원본 데이터) · {stamp} {session_label}")
     except Exception as e:
         print(f"[텔레그램] 건너뜀(리포트는 정상 생성됨): {str(e)[:150]}")
     # data_as_of=scan_stamp: 파일명은 오늘(stamp)로 맞춰도, 대시보드 상단에는

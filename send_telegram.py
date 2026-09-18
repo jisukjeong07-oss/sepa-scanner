@@ -43,10 +43,11 @@ def _load_env():
 _load_env()
 
 
-def send_pdf_report(pdf_path: str, caption: str) -> bool:
+def _send_document(file_path: str, caption: str, mime_type: str) -> bool:
     """
-    PDF 한 개를 텔레그램으로 보낸다. 성공하면 True, 실패해도 예외를
-    던지지 않고 False를 반환한다(호출부에서 흐름을 막지 않기 위함).
+    파일 한 개를 텔레그램으로 보낸다(내부 공용 함수). 성공하면 True,
+    실패해도 예외를 던지지 않고 False를 반환한다(호출부에서 흐름을
+    막지 않기 위함).
     """
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -55,21 +56,21 @@ def send_pdf_report(pdf_path: str, caption: str) -> bool:
         print("[텔레그램] TELEGRAM_BOT_TOKEN 또는 TELEGRAM_CHAT_ID가 "
               ".env에 없어 전송을 건너뜁니다.")
         return False
-    if not os.path.exists(pdf_path):
-        print(f"[텔레그램] 파일을 찾을 수 없습니다: {pdf_path}")
+    if not os.path.exists(file_path):
+        print(f"[텔레그램] 파일을 찾을 수 없습니다: {file_path}")
         return False
 
     url = TELEGRAM_API.format(token=token)
     try:
-        with open(pdf_path, "rb") as f:
+        with open(file_path, "rb") as f:
             resp = requests.post(
                 url,
                 data={"chat_id": chat_id, "caption": caption[:1024]},  # 캡션 길이 제한
-                files={"document": (os.path.basename(pdf_path), f, "application/pdf")},
+                files={"document": (os.path.basename(file_path), f, mime_type)},
                 timeout=30,
             )
         if resp.status_code == 200 and resp.json().get("ok"):
-            print(f"[텔레그램] 전송 완료: {os.path.basename(pdf_path)}")
+            print(f"[텔레그램] 전송 완료: {os.path.basename(file_path)}")
             return True
         else:
             print(f"[텔레그램] 전송 실패(HTTP {resp.status_code}): {resp.text[:300]}")
@@ -77,6 +78,47 @@ def send_pdf_report(pdf_path: str, caption: str) -> bool:
     except Exception as e:
         print(f"[텔레그램] 전송 중 오류(리포트 생성 자체는 정상입니다): {str(e)[:200]}")
         return False
+
+
+def send_pdf_report(pdf_path: str, caption: str) -> bool:
+    """PDF 한 개를 텔레그램으로 보낸다."""
+    return _send_document(pdf_path, caption, "application/pdf")
+
+
+def send_focus_csv(csv_path: str, caption: str) -> bool:
+    """
+    [2026-09-18] 스캔 원본 CSV(전 종목)는 그대로 두고, "통과(PASS)" 또는
+    "7조건 이상 관찰(conditions_met>=7)"만 골라낸 별도 사본을 만들어
+    전송한다. 원본 CSV는 대시보드·히스토리 아카이브·향후 백테스트 등이
+    계속 그대로 쓰므로, 여기서 손대는 건 이 필터링된 사본 하나뿐이다.
+    이 사본은 저장소에 커밋되지 않는 일회성 파일이다(텔레그램 전송
+    용도로만 output/ 아래 만들었다 사라져도 무방함).
+    """
+    import pandas as pd
+
+    if not os.path.exists(csv_path):
+        print(f"[텔레그램] 원본 CSV를 찾을 수 없습니다: {csv_path}")
+        return False
+
+    try:
+        # dtype=str로 전체를 문자열로 읽는다 — 안 그러면 판다스가 종목코드를
+        # 숫자로 오인해서 앞자리 0을 날려버린다(예: "005930" -> "5930").
+        # 실제로 테스트 중 이 문제가 나서 여기서 명시적으로 막는다.
+        df = pd.read_csv(csv_path, encoding="utf-8-sig", dtype=str)
+        if "PASS" not in df.columns or "conditions_met" not in df.columns:
+            print(f"[텔레그램] CSV에 PASS/conditions_met 컬럼이 없어 필터링을 "
+                  f"건너뜁니다(실제 컬럼: {list(df.columns)[:10]}...)")
+            return False
+        focus = df[(df["PASS"] == "True") | (df["conditions_met"].astype(float) >= 7)]
+    except Exception as e:
+        print(f"[텔레그램] CSV 필터링 실패: {str(e)[:200]}")
+        return False
+
+    focus_path = csv_path.replace(".csv", "_focus.csv")
+    focus.to_csv(focus_path, index=False, encoding="utf-8-sig")
+    print(f"[텔레그램] 통과+관찰만 필터링: 전체 {len(df)}종목 -> {len(focus)}종목")
+
+    return _send_document(focus_path, caption, "text/csv")
 
 
 if __name__ == "__main__":
