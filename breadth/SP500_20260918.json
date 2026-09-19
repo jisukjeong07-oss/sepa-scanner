@@ -1,13 +1,13 @@
 {
-  "tt8_count": 66,
-  "tt8_pct": 13.2,
-  "tt7_count": 59,
-  "trend_ex_rs_pct": 14.2,
-  "nh52": 5,
-  "nl52": 24,
-  "net_hl": -19,
-  "above200_pct": 52.8,
-  "above50_pct": 29.0,
+  "tt8_count": 73,
+  "tt8_pct": 14.6,
+  "tt7_count": 54,
+  "trend_ex_rs_pct": 15.4,
+  "nh52": 13,
+  "nl52": 15,
+  "net_hl": -2,
+  "above200_pct": 53.6,
+  "above50_pct": 31.4,
   "n_universe": 503,
   "n_valid": 500,
   "status": "live",
@@ -15,5 +15,5 @@
   "market": "SP500",
   "data_date": "20260918",
   "source": "live",
-  "generated_at": "2026-09-19T02:07:57"
+  "generated_at": "2026-09-19T10:10:56"
 }
