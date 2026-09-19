@@ -8,12 +8,12 @@
   "net_hl": -88,
   "above200_pct": 21.75,
   "above50_pct": 55.88,
-  "n_universe": 2739,
+  "n_universe": 2738,
   "n_valid": 2584,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KR_TOTAL",
   "data_date": "20260918",
   "source": "live",
-  "generated_at": "2026-09-19T10:10:24"
+  "generated_at": "2026-09-19T23:16:00"
 }
