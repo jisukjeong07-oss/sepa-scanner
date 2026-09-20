@@ -136,6 +136,12 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # 1단계: 트렌드템플릿 스캔
     run(market, min_rs, kr_source, as_of=as_of)
 
+    # [2026-09-20] run() 실행 중 sepa_scanner.LAST_SECTOR_STATUS에 업종분류
+    # 결과 상태("ok"/"stale"/"failed")가 저장된다. run()의 반환값 형태를
+    # 안 건드리려고 전역 변수로 빼둔 것 — 여기서 읽어서 대시보드에 넘긴다.
+    import sepa_scanner
+    sector_status = getattr(sepa_scanner, "LAST_SECTOR_STATUS", {"status": "ok"})
+
     # sepa_scanner 는 CSV 파일명을 '데이터 기준일'로 붙인다.
     # as_of=20260904 를 주면 sepa_scan_20260904.csv 가 만들어진다.
     # 반면 리포트·대시보드는 파일명과 표지 날짜를 stamp(오늘)로 써야
@@ -193,6 +199,25 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     except Exception as e:
         print(f"[경고] 매크로 지표 조회 실패(리포트·대시보드는 정상 생성됩니다): {e}")
 
+    # 2.7단계: 놓친 패턴 관찰 (developing → entry_ready 없이 → extended).
+    # [2026-09-20] 매일 계산한다 — 한국 전체 유니버스 기준 몇 초대로 가벼워서
+    # 굳이 주기를 아낄 이유가 없다. 실패해도 리포트·대시보드는 정상 생성돼야
+    # 한다(부가 패널이라 핵심 산출물이 아님).
+    missed_patterns_snapshot = {"confirmed": [], "developing": [], "status": {"status": "ok"}}
+    try:
+        import missed_patterns_data
+        mp_markets = tuple(m for m in ("KR", "US") if market in (m, "ALL"))
+        if mp_markets:
+            missed_patterns_snapshot = missed_patterns_data.compute_missed_patterns_snapshot(
+                markets=mp_markets)
+    except Exception as e:
+        print(f"[경고] 놓친 패턴 계산 실패(리포트·대시보드는 정상 생성됩니다): {e}")
+        missed_patterns_snapshot["status"] = {"status": "failed", "error": str(e)[:200]}
+    # compute_missed_patterns_snapshot()의 반환 딕셔너리 안에 status가
+    # 같이 들어있다 — 대시보드 build()는 confirmed/developing과 status를
+    # 따로 받으므로 여기서 분리한다.
+    missed_status = missed_patterns_snapshot.pop("status", {"status": "ok"})
+
     # 산출물 (파일명에 세션이 붙어 장전/장마감/소급 기록이 각각 남는다)
     pdf_path = make_report.build(csv_path, stage2_csv=stage2_path, session=session,
                                  breadth_summary=breadth_summary)
@@ -214,7 +239,9 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     html_path = make_dashboard.build(csv_path, open_browser=open_browser,
                                      hist_dir=make_dashboard.HIST_DIR, session=session,
                                      data_as_of=scan_stamp, breadth_snapshot=breadth_snapshot,
-                                     macro_snapshot=macro_snapshot)
+                                     macro_snapshot=macro_snapshot,
+                                     missed_patterns_snapshot=missed_patterns_snapshot,
+                                     sector_status=sector_status, missed_status=missed_status)
 
     print(f"\n완료 [{session}] 대상일자={stamp}")
     if as_of:

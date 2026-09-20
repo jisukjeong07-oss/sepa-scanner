@@ -62,6 +62,7 @@ from sepa_scanner import (
 STOP_EXIT = "손절"
 MA50_EXIT = "추세이탈"
 TIMEOUT_EXIT = "만기청산"
+DATA_END_EXIT = "데이터끝(미청산)"
 
 GATE_MIN_HISTORY = 252
 CACHE_CALENDAR_DAYS_BACK = 800  # 넉넉하게 2년+ (영업일로 대략 550~560일)
@@ -88,6 +89,33 @@ def _load_kr_prices(min_rows: int):
             f"캐시 영업일이 {len(close)}일뿐입니다(최소 {min_rows}일 필요). "
             f"KRX 쪽에서 과거분을 충분히 못 받아왔을 수 있습니다 — 로그의 "
             f"[빈 응답]·[warn] 줄을 확인해 주세요."
+        )
+    return close, high, low, value
+
+
+def _load_us_prices(min_rows: int):
+    """
+    [2026-09-20] sepa_scanner.fetch_us()를 us_data_cache.fetch_us_cached()로
+    감싸서 쓴다. 예전엔 캐시가 없어 이 함수를 부를 때마다(백테스트,
+    놓친패턴 계산 등) 매번 500종목을 새로 받았는데, 메인 스캔이 이미
+    같은 날 한 번 받아둔 걸 재사용하지 않고 또 받으면서 yfinance가
+    느려지고(2배 시간) 내부 캐시 충돌로 일부 종목이 실패하는 문제
+    (OperationalError: unable to open database file)가 실제로 있었다.
+    이제 하루 안에서는 먼저 받은 쪽의 결과를 그대로 재사용한다.
+    """
+    from sepa_scanner import us_universe
+    from us_data_cache import fetch_us_cached
+
+    tickers = us_universe()
+    print(f"[백테스트] 미국 유니버스 {len(tickers)}종목 · 2년치 시세 확보 중 "
+          f"(오늘 이미 받은 게 있으면 재사용합니다)...")
+    data = fetch_us_cached(tickers, period="2y")
+    close, high, low, value = data["close"], data["high"], data["low"], data["value"]
+
+    if len(close) < min_rows:
+        raise RuntimeError(
+            f"받아온 영업일이 {len(close)}일뿐입니다(최소 {min_rows}일 필요). "
+            f"yfinance 응답이 예상보다 짧았을 수 있습니다."
         )
     return close, high, low, value
 
@@ -124,13 +152,31 @@ def _build_trend_template_gate(close: pd.DataFrame, high: pd.DataFrame, low: pd.
     return gate, rs
 
 
-def _find_trades_for_ticker(dates, close, high, low, value, gate, rs, start_t, end_t, max_hold_days):
+def _find_trades_for_ticker(dates, close, high, low, value, gate, rs, start_t, entry_end_t,
+                             data_end_t, max_hold_days):
     """
-    한 종목을 start_t~end_t 구간에서 하루씩 되감으며, "그날 8조건을
+    한 종목을 start_t~entry_end_t 구간에서 하루씩 되감으며, "그날 8조건을
     통과했는가"(gate)와 "그날 VCP가 entry_ready인가"를 같이 확인한다.
     이미 포지션 보유 중엔 새 신호를 찾지 않는다. entry_idx/exit_idx(정수
     날짜 인덱스)와 진입 시점 RS도 같이 남긴다 — 포트폴리오 시뮬레이션이
     여러 종목을 날짜 기준으로 정렬·우선순위 매길 때 쓴다.
+
+    [2026-09-18] entry_end_t와 data_end_t를 분리한 이유 — 예전엔 "새 신호를
+    찾는 마지막 날"과 "청산을 확인하는 마지막 날"이 같은 값(entry_end_t)
+    이었다. run_backtest()가 entry_end_t를 "n-1-max_hold_days"로 미리
+    reserve해두는 건 "가장 늦게 진입한 거래도 만기까지 관찰할 여유를
+    준다"는 뜻인데, 정작 이 함수의 청산 확인 루프가 그 여유분(reserve한
+    구간)을 안 쓰고 entry_end_t에서 멈춰버려서, 구간 끝자락에 진입한
+    거래들이 만기를 다 못 채우고 "데이터끝(미청산)"으로 잘못 잘렸다.
+    실사례: 만기 60일로 지정했는데도 324건 중 31건이 이 사유로 나왔다
+    (60일을 지정했으면 이 사유 자체가 나오면 안 된다). data_end_t(진짜
+    마지막 날)까지 청산 확인을 계속하도록 분리해서 고친다.
+
+    max_hold_days가 None이면 만기청산 규칙 자체를 안 쓴다(미네르비니
+    원칙엔 고정 보유일수 규칙이 없다 — 손절가·추세이탈로만 청산). 이
+    경우 data_end_t까지 가도 포지션이 안 끝났으면, 그건 "청산된 거래"가
+    아니라 "데이터가 거기서 끝나서 결과를 모르는 거래"이므로 DATA_END_EXIT
+    로 따로 표시한다 — 실제 청산 사유와 섞이면 안 된다.
     """
     ma50 = pd.Series(close).rolling(50).mean().to_numpy()
 
@@ -139,9 +185,9 @@ def _find_trades_for_ticker(dates, close, high, low, value, gate, rs, start_t, e
     in_position = False
     entry_idx = entry_price = stop_price = None
 
-    while t <= end_t:
+    while t <= data_end_t:
         if not in_position:
-            if gate[t]:
+            if t <= entry_end_t and gate[t]:
                 res = _vcp.analyze_ticker(high[:t + 1], low[:t + 1], close[:t + 1], value[:t + 1])
                 if res and res.get("vcp_status") == "entry_ready":
                     entry_idx = t
@@ -156,7 +202,7 @@ def _find_trades_for_ticker(dates, close, high, low, value, gate, rs, start_t, e
                 reason = STOP_EXIT
             elif not np.isnan(ma50[t]) and px < ma50[t]:
                 reason = MA50_EXIT
-            elif days_held >= max_hold_days:
+            elif max_hold_days is not None and days_held >= max_hold_days:
                 reason = TIMEOUT_EXIT
 
             if reason:
@@ -175,14 +221,47 @@ def _find_trades_for_ticker(dates, close, high, low, value, gate, rs, start_t, e
                 in_position = False
         t += 1
 
+    if in_position:
+        # data_end_t(진짜 마지막 날)까지 가도 손절도 추세이탈도 만기도 안
+        # 걸린 채 살아있던 포지션. 실제로 팔린 게 아니므로, 그 시점 가격으로
+        # "지금 이 시점 기준 평가상 얼마인지"만 참고용으로 기록하고 사유를
+        # 명확히 구분한다. max_hold_days가 설정돼 있었다면 entry_end_t가
+        # 이미 충분한 여유를 reserve해뒀으므로 이 분기는 사실상 발생하지
+        # 않아야 정상이다 — 발생한다면 --no-timeout 모드이거나 데이터
+        # 자체가 예상보다 짧은 경우다.
+        px = float(close[data_end_t])
+        trades.append({
+            "entry_idx": entry_idx,
+            "exit_idx": data_end_t,
+            "entry_date": str(dates[entry_idx]),
+            "exit_date": str(dates[data_end_t]),
+            "entry_price": entry_price,
+            "exit_price": px,
+            "return_pct": round((px / entry_price - 1) * 100, 2),
+            "holding_days": data_end_t - entry_idx,
+            "exit_reason": DATA_END_EXIT,
+            "rs_at_entry": float(rs[entry_idx]) if not np.isnan(rs[entry_idx]) else None,
+        })
+
     return trades
 
 
-def run_backtest(max_hold_days: int = DEFAULT_MAX_HOLD_DAYS,
+def run_backtest(market: str = "KR", max_hold_days: int = DEFAULT_MAX_HOLD_DAYS,
                   max_tickers: int = None, progress_every: int = 200):
-    """반환값: (trades_df, close_df, start_t, end_t) — close_df·인덱스 범위는
-    포트폴리오 시뮬레이션에서 그대로 재사용한다(다시 안 받아오려고)."""
-    close, high, low, value = _load_kr_prices(min_rows=GATE_MIN_HISTORY + max_hold_days + 20)
+    """반환값: (trades_df, close_df, start_t, data_end_t) — close_df·인덱스
+    범위는 포트폴리오 시뮬레이션에서 그대로 재사용한다(다시 안 받아오려고).
+    data_end_t(진짜 마지막 날)를 반환하는 이유 — 만기가 설정된 거래도
+    entry_end_t(신호 탐색 마지막 날) 이후, 즉 reserve해둔 여유 구간에서
+    실제로 청산될 수 있다. 포트폴리오 시뮬레이션이 그 청산을 놓치지 않고
+    현금을 회수하려면 data_end_t까지 날짜를 훑어야 한다.
+    max_hold_days=None이면 만기청산 규칙을 안 쓴다 — 이 경우 데이터 끝까지
+    구간을 다 쓴다(뒤쪽에 결과 추적용 여유를 안 떼어놓아도 되므로).
+    market: "KR" 또는 "US" — 8조건 게이트·VCP 로직은 시장과 무관하게
+    완전히 동일하다(가격 배열만 넣으면 되므로). 데이터를 어디서 받아오는지만
+    다르다."""
+    loader = {"KR": _load_kr_prices, "US": _load_us_prices}[market]
+    _reserve = max_hold_days if max_hold_days is not None else 0
+    close, high, low, value = loader(min_rows=GATE_MIN_HISTORY + _reserve + 20)
 
     valid = close.notna().sum() >= GATE_MIN_HISTORY
     close, high, low, value = (df.loc[:, valid] for df in (close, high, low, value))
@@ -190,23 +269,25 @@ def run_backtest(max_hold_days: int = DEFAULT_MAX_HOLD_DAYS,
 
     n = len(close)
     start_t = GATE_MIN_HISTORY
-    end_t = n - 1 - max_hold_days
-    if end_t < start_t:
+    data_end_t = n - 1                    # 진짜 마지막 날 — 청산 확인·포트폴리오 시뮬레이션용
+    entry_end_t = n - 1 - _reserve        # 신호 탐색 마지막 날 — 새 진입은 여기까지만
+    if entry_end_t < start_t:
         raise RuntimeError(
             f"신호 탐색 가능 구간이 없습니다(영업일 {n}일로는 부족합니다). "
-            f"CACHE_CALENDAR_DAYS_BACK을 늘려서 더 받아와야 합니다."
+            f"{'CACHE_CALENDAR_DAYS_BACK을 늘려서' if market=='KR' else 'fetch_us의 기간을 늘려서'} "
+            f"더 받아와야 합니다."
         )
 
-    print(f"[백테스트] 데이터 정리 후 {len(close.columns)}종목 / {n}영업일 · "
-          f"신호 탐색 구간: {start_t}~{end_t} (약 {end_t - start_t}거래일) · "
-          f"만기 {max_hold_days}일")
+    hold_label = f"만기 {max_hold_days}일" if max_hold_days is not None else "만기 없음(손절·추세이탈만)"
+    print(f"[백테스트] [{market}] 데이터 정리 후 {len(close.columns)}종목 / {n}영업일 · "
+          f"신호 탐색 구간: {start_t}~{entry_end_t} (약 {entry_end_t - start_t}거래일) · {hold_label}")
 
     print("[백테스트] 8조건 게이트 계산 중(벡터화, 전 구간 한 번에)...")
     t_gate0 = time.time()
     gate_df, rs_df = _build_trend_template_gate(close, high, low)
     print(f"[백테스트] 게이트 계산 완료 · {time.time()-t_gate0:.1f}초 · "
           f"탐색 구간 내 평균 일일 통과 종목 수: "
-          f"{gate_df.iloc[start_t:end_t+1].sum(axis=1).mean():.0f}개")
+          f"{gate_df.iloc[start_t:entry_end_t+1].sum(axis=1).mean():.0f}개")
 
     dates = close.index.to_numpy()
     tickers = list(close.columns)
@@ -231,14 +312,15 @@ def run_backtest(max_hold_days: int = DEFAULT_MAX_HOLD_DAYS,
             continue
         if np.isnan(c).all():
             continue
-        trades = _find_trades_for_ticker(dates, c, h, l, v, g, r, start_t, end_t, max_hold_days)
+        trades = _find_trades_for_ticker(dates, c, h, l, v, g, r, start_t,
+                                          entry_end_t, data_end_t, max_hold_days)
         for tr in trades:
             tr["ticker"] = ticker
             all_trades.append(tr)
 
     df = pd.DataFrame(all_trades)
     print(f"[백테스트] 완료 · {len(df)}건의 거래 발견 · 총 {time.time()-t0:.0f}초")
-    return df, close, start_t, end_t
+    return df, close, start_t, data_end_t
 
 
 def summarize(df: pd.DataFrame) -> dict:
@@ -357,26 +439,38 @@ def simulate_portfolio(trades: pd.DataFrame, close: pd.DataFrame, start_t: int, 
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--market", default="KR", choices=["KR", "US"],
+                     help="백테스트 대상 시장 (기본 KR)")
     ap.add_argument("--max-hold", type=int, default=DEFAULT_MAX_HOLD_DAYS,
-                     help=f"만기청산까지 최대 보유일수 (기본 {DEFAULT_MAX_HOLD_DAYS})")
+                     help=f"만기청산까지 최대 보유일수 (기본 {DEFAULT_MAX_HOLD_DAYS}). "
+                          f"--no-timeout과 같이 쓰면 무시된다")
+    ap.add_argument("--no-timeout", action="store_true",
+                     help="만기청산 규칙을 아예 안 쓴다(미네르비니 원칙대로 손절·추세이탈로만 청산)")
     ap.add_argument("--max-concurrent", type=int, default=10,
                      help="포트폴리오 시뮬레이션 동시 최대 보유 종목 수 (기본 10)")
-    ap.add_argument("--capital", type=float, default=100_000_000,
-                     help="포트폴리오 시뮬레이션 초기 자본금 (기본 1억원)")
+    ap.add_argument("--capital", type=float, default=None,
+                     help="포트폴리오 시뮬레이션 초기 자본금. 생략하면 시장별 기본값 "
+                          "(한국 1억원 / 미국 10만달러)")
     ap.add_argument("--no-portfolio", action="store_true",
                      help="포트폴리오 시뮬레이션은 건너뛰고 거래 단위 통계만 본다")
     args = ap.parse_args()
 
-    df, close, start_t, end_t = run_backtest(max_hold_days=args.max_hold)
+    max_hold = None if args.no_timeout else args.max_hold
+    hold_tag = "notimeout" if args.no_timeout else f"h{args.max_hold}"
+    hold_label = "만기 없음" if args.no_timeout else f"만기 {args.max_hold}일"
+    currency = "원" if args.market == "KR" else "달러"
+    capital = args.capital if args.capital is not None else (100_000_000 if args.market == "KR" else 100_000)
+
+    df, close, start_t, end_t = run_backtest(market=args.market, max_hold_days=max_hold)
     os.makedirs(OUT_DIR, exist_ok=True)
     stamp = dt.date.today().strftime("%Y%m%d")
-    csv_path = os.path.join(OUT_DIR, f"backtest_trades_{stamp}_h{args.max_hold}.csv")
+    csv_path = os.path.join(OUT_DIR, f"backtest_trades_{stamp}_{args.market}_{hold_tag}.csv")
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
     summary = summarize(df)
     print()
     print("=" * 50)
-    print(f" 백테스트 결과 요약 (8조건 게이트, 만기 {args.max_hold}일)")
+    print(f" 백테스트 결과 요약 [{args.market}] (8조건 게이트, {hold_label})")
     print("=" * 50)
     if summary["trades"] == 0:
         print(" 거래 표본이 0건입니다.")
@@ -396,20 +490,20 @@ def main():
         print()
         print("[포트폴리오 시뮬레이션] 계산 중...")
         port = simulate_portfolio(df, close, start_t, end_t,
-                                   initial_capital=args.capital,
+                                   initial_capital=capital,
                                    max_concurrent=args.max_concurrent)
         equity_df = port.pop("equity_curve")
-        eq_path = os.path.join(OUT_DIR, f"backtest_equity_{stamp}_h{args.max_hold}.csv")
+        eq_path = os.path.join(OUT_DIR, f"backtest_equity_{stamp}_{args.market}_{hold_tag}.csv")
         equity_df.to_csv(eq_path, encoding="utf-8-sig")
 
         print()
         print("=" * 50)
-        print(f" 포트폴리오 시뮬레이션 (동시 최대 {args.max_concurrent}종목, "
-              f"초기자본 {args.capital:,.0f}원)")
+        print(f" 포트폴리오 시뮬레이션 [{args.market}] (동시 최대 {args.max_concurrent}종목, "
+              f"초기자본 {capital:,.0f}{currency})")
         print("=" * 50)
         print(f" 실제 매수 건수    : {port['trades_taken']}건 "
               f"(자리가 없어 놓친 신호 {port['trades_skipped']}건)")
-        print(f" 최종 평가액       : {port['final_equity']:,.0f}원")
+        print(f" 최종 평가액       : {port['final_equity']:,.0f}{currency}")
         print(f" 총 수익률         : {port['total_return_pct']}%")
         print(f" 연환산 수익률(CAGR): {port['cagr_pct']}%")
         print(f" 최대 낙폭(MDD)     : {port['max_drawdown_pct']}%")

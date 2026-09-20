@@ -25,7 +25,12 @@
 {"timestamp": "2026-09-18T21:06:39", "session": "PM", "market": "ALL", "stamp": "20260918", "data_as_of": "20260918", "status": "success", "duration_sec": 263.2}
 {"timestamp": "2026-09-18T21:37:39", "session": "PM", "market": "ALL", "stamp": "20260918", "data_as_of": "20260918", "status": "success", "duration_sec": 258.2}
 {"timestamp": "2026-09-18T21:46:43", "session": "PM", "market": "ALL", "stamp": "20260918", "data_as_of": "20260918", "status": "success", "duration_sec": 636.1}
-{"timestamp": "2026-09-18T22:19:54", "session": "PM", "market": "ALL", "stamp": "20260918", "data_as_of": "20260918", "status": "success", "duration_sec": 532.7}
-{"timestamp": "2026-09-19T01:59:23", "session": "PM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260919", "status": "success", "duration_sec": 525.8}
-{"timestamp": "2026-09-19T10:01:50", "session": "AM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260918", "status": "success", "duration_sec": 550.6}
-{"timestamp": "2026-09-19T23:11:40", "session": "PM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260919", "status": "success", "duration_sec": 320.9}
+{"timestamp": "2026-09-19T16:26:21", "session": "PM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260919", "status": "success", "duration_sec": 292.3}
+{"timestamp": "2026-09-19T23:08:31", "session": "PM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260919", "status": "success", "duration_sec": 371.7}
+{"timestamp": "2026-09-19T23:23:35", "session": "PM", "market": "ALL", "stamp": "20260919", "data_as_of": "20260919", "status": "success", "duration_sec": 454.5}
+{"timestamp": "2026-09-20T16:27:41", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": null, "status": "failed", "duration_sec": 261.9, "error": "build() got an unexpected keyword argument 'sector_status'"}
+{"timestamp": "2026-09-20T16:34:54", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 3886.6}
+{"timestamp": "2026-09-20T17:50:23", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 630.2}
+{"timestamp": "2026-09-20T19:09:47", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 258.7}
+{"timestamp": "2026-09-20T19:32:06", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 288.2}
+{"timestamp": "2026-09-20T23:33:54", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 282.4}

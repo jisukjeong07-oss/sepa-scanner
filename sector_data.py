@@ -75,10 +75,14 @@ def _is_sector_index_name(name: str) -> bool:
 
 def fetch_kr_sector_map(force: bool = False) -> dict:
     """
-    {티커: 업종명} 딕셔너리를 반환한다. 캐시가 30일 이내면 그걸 쓰고,
-    없거나 오래됐으면 pykrx로 새로 받는다. pykrx가 없거나 네트워크
-    문제로 실패하면 빈 딕셔너리를 반환한다 — 이 기능은 부가 정보라,
-    실패해도 스캐너 본체가 죽으면 안 된다.
+    [2026-09-20] 반환값이 바뀌었다 — {티커: 업종명} 딕셔너리 대신,
+    (매핑, 상태정보) 튜플을 반환한다. 대시보드가 "정상"·"결과 없음"·
+    "계산 실패(캐시로 대체)"·"완전 실패"를 구분해서 보여줘야 해서다.
+
+    상태정보 status 값:
+      "ok"     — 방금 새로 계산했거나, 유효기간 이내 캐시를 그대로 씀
+      "stale"  — 이번 계산은 실패했지만, 유효기간 지난 캐시가 있어 그걸로 대체
+      "failed" — 계산도 실패하고 대체할 캐시도 전혀 없음(빈 매핑)
     """
     if not force and os.path.exists(CACHE_PATH):
         age_days = (time.time() - os.path.getmtime(CACHE_PATH)) / 86400
@@ -87,7 +91,7 @@ def fetch_kr_sector_map(force: bool = False) -> dict:
                 with open(CACHE_PATH, encoding="utf-8") as f:
                     data = json.load(f)
                 print(f"[업종분류] 캐시 사용 ({age_days:.0f}일 전 수집, {len(data)}종목)")
-                return data
+                return data, {"status": "ok", "cache_age_days": round(age_days)}
             except Exception as e:
                 print(f"[업종분류] 캐시 읽기 실패, 새로 받습니다: {e}")
 
@@ -95,7 +99,7 @@ def fetch_kr_sector_map(force: bool = False) -> dict:
         from pykrx import stock as pkstock
     except ImportError:
         print("[업종분류] pykrx가 설치되어 있지 않아 업종 분류를 건너뜁니다.")
-        return {}
+        return _fallback_to_stale_cache("pykrx가 설치되어 있지 않습니다")
 
     today = dt.date.today().strftime("%Y%m%d")
     total_indices = 0
@@ -105,12 +109,14 @@ def fetch_kr_sector_map(force: bool = False) -> dict:
     # 보다 먼저 종목을 채가는 문제를 막을 수 있다. 실사례: 첫 버전에서는
     # 처리 순서가 우연에 맡겨져 있어 전체의 43%가 "제조" 하나로 뭉쳐 나왔다.
     candidates = []  # [(idx_name, [ticker, ...]), ...]
+    fetch_error = None
 
     for market in ("KOSPI", "KOSDAQ"):
         try:
             index_tickers = pkstock.get_index_ticker_list(today, market=market)
         except Exception as e:
             print(f"[업종분류] {market} 지수 목록 조회 실패: {str(e)[:150]}")
+            fetch_error = str(e)[:200]
             continue
 
         for idx_ticker in index_tickers:
@@ -148,20 +154,43 @@ def fetch_kr_sector_map(force: bool = False) -> dict:
     print(f"[업종분류] 지수 {total_indices}개 중 업종 지수 {used_indices}개 사용 · "
           f"{len(mapping)}종목 매핑 완료")
 
-    if mapping:
-        os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
-        try:
-            with open(CACHE_PATH, "w", encoding="utf-8") as f:
-                json.dump(mapping, f, ensure_ascii=False)
-        except Exception as e:
-            print(f"[업종분류] 캐시 저장 실패(이번 실행 결과는 정상 사용됨): {e}")
+    if not mapping:
+        # 지수 목록 자체를 못 받았거나(로그인 실패 등), 받았는데 매핑이
+        # 0개면 — 둘 다 "이번 계산은 사실상 실패"로 보고 옛날 캐시를 찾는다.
+        return _fallback_to_stale_cache(fetch_error or "업종 매핑 결과가 0건입니다")
 
-    return mapping
+    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+    try:
+        with open(CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(mapping, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[업종분류] 캐시 저장 실패(이번 실행 결과는 정상 사용됨): {e}")
+
+    return mapping, {"status": "ok", "cache_age_days": 0}
+
+
+def _fallback_to_stale_cache(error_msg: str):
+    """
+    이번 계산이 실패했을 때 호출한다. 유효기간이 지난 캐시라도 파일 자체가
+    있으면 그걸 "오래된 데이터"로 반환하고, 아예 없으면 완전 실패로 반환한다.
+    """
+    if os.path.exists(CACHE_PATH):
+        try:
+            age_days = (time.time() - os.path.getmtime(CACHE_PATH)) / 86400
+            with open(CACHE_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            print(f"[업종분류] 이번 계산 실패 — {age_days:.0f}일 전 캐시로 대체합니다")
+            return data, {"status": "stale", "cache_age_days": round(age_days), "error": error_msg}
+        except Exception as e:
+            print(f"[업종분류] 옛날 캐시 읽기도 실패: {e}")
+
+    print(f"[업종분류] 완전 실패 — 대체할 캐시도 없습니다: {error_msg}")
+    return {}, {"status": "failed", "cache_age_days": None, "error": error_msg}
 
 
 if __name__ == "__main__":
-    m = fetch_kr_sector_map(force=True)
-    # 업종별 종목 수 요약 출력 — 매핑이 그럴듯한지 눈으로 확인하기 위함
+    m, status = fetch_kr_sector_map(force=True)
+    print(f"상태: {status}")
     from collections import Counter
     counts = Counter(m.values())
     for name, n in counts.most_common(30):

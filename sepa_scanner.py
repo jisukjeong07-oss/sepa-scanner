@@ -61,6 +61,13 @@ os.makedirs(OUT_DIR, exist_ok=True)
 # ─────────────────────────────────────────────────────────────
 LOOKBACK_DAYS = 420          # 200일선 + 여유분 확보 (약 2년치 영업일 아님, 캘린더 기준)
 MIN_RS = 70                  # 트렌드템플릿 8번 조건: RS Rating 하한 (미네르비니 권장 70+, 이상적 80~90)
+
+# [2026-09-20] run() 실행 중 업종분류 결과 상태를 시장별로 여기 담아둔다.
+# 한국(sector_data.py)과 미국(us_sector_data.py)은 완전히 별개의 메커니즘
+# 이라, 한쪽만 담으면 다른 쪽 실패가 전혀 안 잡힌다. run_daily.py가
+# run() 호출 뒤 sepa_scanner.LAST_SECTOR_STATUS["KR"]/["US"]로 읽어가서
+# 대시보드 탭에 시장별로 정확한 상태를 보여준다.
+LAST_SECTOR_STATUS = {"KR": {"status": "ok"}, "US": {"status": "ok"}}
 NEAR_HIGH_PCT = 25.0         # 조건7: 52주 신고가 대비 -25% 이내
 ABOVE_LOW_PCT = 30.0         # 조건6: 52주 신저가 대비 +30% 이상
 MA200_SLOPE_DAYS = 21        # 조건3: 200일선이 최소 1개월(≈21영업일) 상승
@@ -807,13 +814,21 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             # [2026-09-15] 업종 분류 — 가격 수집 경로(고속/폴백)와 무관하게
             # 한 번만 붙인다. 실패해도(pykrx 없음, 네트워크 문제 등) 전체
             # 스캔이 죽지 않도록 별도로 감싼다 — 이건 부가 정보다.
+            # [2026-09-20] fetch_kr_sector_map()이 이제 (매핑, 상태) 튜플을
+            # 반환한다. 이 상태를 모듈 전역(LAST_SECTOR_STATUS)에 저장해두면
+            # run_daily.py가 run() 호출 후 sepa_scanner.LAST_SECTOR_STATUS로
+            # 읽어가서 대시보드에 "실패했습니다"·"오래된 데이터입니다"를
+            # 보여줄 수 있다. run()은 DataFrame 하나만 반환하는 기존 형태를
+            # 그대로 유지해야(호출부를 더 안 건드리려고) 전역 변수로 뺀다.
             try:
                 from sector_data import fetch_kr_sector_map
-                sector_map = fetch_kr_sector_map()
+                sector_map, sector_status = fetch_kr_sector_map()
                 r["sector"] = r.index.map(sector_map.get) if sector_map else None
+                LAST_SECTOR_STATUS["KR"] = sector_status
             except Exception as e:
                 print(f"[업종분류] 건너뜀(표는 정상 생성됨): {str(e)[:150]}")
                 r["sector"] = None
+                LAST_SECTOR_STATUS["KR"] = {"status": "failed", "error": str(e)[:200]}
 
             results.append(r)
         except Exception as e:
@@ -829,7 +844,8 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
     if market in ("US", "ALL"):
         try:
             tickers = us_universe()
-            data = fetch_us(tickers, start=start, end=end)
+            from us_data_cache import fetch_us_cached
+            data = fetch_us_cached(tickers, start=start, end=end)
             r = screen(data, "US", min_rs, min_turnover_us,
                        dev_threshold=dev_threshold, dev_lookback=dev_lookback)
             r.insert(0, "name", pd.Series(us_names(r.index)))
@@ -855,9 +871,12 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                 from us_sector_data import fetch_us_sector_map
                 us_sector_map = fetch_us_sector_map(list(r.index))
                 r["sector"] = r.index.map(us_sector_map.get) if us_sector_map else None
+                LAST_SECTOR_STATUS["US"] = {"status": "ok"} if us_sector_map else \
+                    {"status": "failed", "error": "업종 매핑 결과가 0건입니다"}
             except Exception as e:
                 print(f"[미국 업종분류] 건너뜀(표는 정상 생성됨): {str(e)[:150]}")
                 r["sector"] = None
+                LAST_SECTOR_STATUS["US"] = {"status": "failed", "error": str(e)[:200]}
 
             results.append(r)
         except Exception as e:

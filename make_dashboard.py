@@ -343,8 +343,29 @@ h1{margin:0;font-size:26px;font-weight:800;letter-spacing:-.02em}
 #sectorTable td{padding:7px 8px;font-size:12px;border-bottom:1px solid #EEF1F4}
 #sectorTable tr[data-sector]{cursor:pointer}
 #sectorTable tr[data-sector]:hover{background:#F7F9FB}
-#macroCollapseBody.collapsed{display:none}
-#sectorCollapseBody.collapsed{display:none}
+#insightCollapseBody.collapsed{display:none}
+.main-tab-content .tab-subhead{display:flex;align-items:center;justify-content:space-between;
+  gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.tab-warn{display:inline-block;width:14px;height:14px;line-height:14px;text-align:center;
+  border-radius:50%;background:#c0343b;color:#fff;font-size:9px;font-weight:800;
+  margin-left:5px;vertical-align:middle}
+.fail-note{font-size:11.5px;font-weight:700;color:#C0343B;background:#FCEAEA;
+  border:1px solid #F3C6C6;border-radius:8px;padding:8px 12px;margin:0 0 10px;
+  display:flex;align-items:center;gap:6px}
+.fail-note.stale{color:#8a6d00;background:#FFF3CD;border-color:#F0DDB8}
+.missed-subhead-row{display:flex;align-items:center;justify-content:space-between;
+  gap:10px;flex-wrap:wrap;margin:0 0 6px}
+.count-badge{font-size:10.5px;color:var(--muted);font-weight:600;margin-left:4px}
+.missed-toolbar{display:flex;align-items:center;gap:6px}
+.mini-search{padding:4px 9px;border:1px solid var(--line);border-radius:6px;
+  font-size:11.5px;width:170px}
+.mini-dl-btn{border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;
+  padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+.mini-dl-btn.xl{background:#1a7f37;border-color:#1a7f37}
+.mini-dl-btn.pdf{background:#000;border-color:#000}
+#sectorFilterBanner{display:none;align-items:center;gap:8px;background:#EFF3F8;
+  border:1px solid #D5DBE1;border-radius:8px;padding:7px 12px;margin:0 0 10px;font-size:12px}
+#sectorFilterBanner label{display:flex;align-items:center;gap:6px;cursor:pointer;margin:0}
 .idx-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .idx-card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
 .idx-card .nm{font-size:11.5px;color:var(--ink-2)}
@@ -724,66 +745,132 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 <body>
 <div class="wrap">
 
-<section class="macro">
+<section class="macro insight-tabs" id="insightSection">
   <div class="macro-idx">
     <div class="macro-h-row">
-      <div class="macro-h">매크로 지표</div>
-      <button id="macroCollapseBtn" class="macro-collapse-btn" aria-expanded="false">펼치기</button>
-    </div>
-    <div id="macroCollapseBody" class="collapsed">
-      <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
-      <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
-
-      <section class="macro-breadth" id="breadthSection" hidden>
-        <div class="macro-h" style="margin-top:16px">시장 폭</div>
-        <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
-      </section>
-    </div>
-  </div>
-</section>
-
-<section class="macro sector-panel" id="sectorSection" hidden>
-  <div class="macro-idx">
-    <div class="macro-h-row">
-      <div class="macro-h">업종 강도</div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <div class="seg" role="group" aria-label="업종 강도 시장">
-          <button data-sectormkt="KR" aria-pressed="true">한국</button>
-          <button data-sectormkt="US" aria-pressed="false">미국</button>
-        </div>
-        <div class="seg" role="group" aria-label="업종 강도 보기">
-          <button data-sectorview="treemap" aria-pressed="true">트리맵</button>
-          <button data-sectorview="table" aria-pressed="false">표</button>
-        </div>
-        <button id="sectorCollapseBtn" class="macro-collapse-btn" aria-expanded="true">닫기</button>
+      <div class="seg" role="group" aria-label="상단 정보 탭">
+        <button data-maintab="sector" aria-pressed="true">업종별 강도<span class="tab-warn" id="sectorTabWarn" hidden>!</span></button>
+        <button data-maintab="missed" aria-pressed="false">놓친 패턴 관찰<span class="tab-warn" id="missedTabWarn" hidden>!</span></button>
+        <button data-maintab="macro" aria-pressed="false">매크로 지표</button>
       </div>
+      <button id="insightCollapseBtn" class="macro-collapse-btn" aria-expanded="false">펼치기</button>
     </div>
-    <div id="sectorCollapseBody">
-      <p id="sectorHint" style="font-size:11px;color:var(--muted);margin:0 0 8px">
-        업종을 클릭하면 아래 Momentum Watchlist 표가 그 업종 종목만 필터링됩니다. (한국 종목만 해당)
-      </p>
-      <div id="sectorTreemapView">
-        <div id="treemapWrap" class="treemap-view" style="width:100%"></div>
+
+    <div id="insightCollapseBody" class="collapsed">
+
+      <div id="mainTab-sector" class="main-tab-content">
+        <div id="sectorFailNote" class="fail-note" hidden></div>
+        <div class="tab-subhead">
+          <p id="sectorHint" style="font-size:11px;color:var(--muted);margin:0">
+            업종을 클릭하면 아래 Momentum Watchlist 표가 그 업종 종목만 필터링됩니다. (한국 종목만 해당)
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="seg" role="group" aria-label="업종 강도 시장">
+              <button data-sectormkt="KR" aria-pressed="true">한국</button>
+              <button data-sectormkt="US" aria-pressed="false">미국</button>
+            </div>
+            <div class="seg" role="group" aria-label="업종 강도 보기">
+              <button data-sectorview="treemap" aria-pressed="true">트리맵</button>
+              <button data-sectorview="table" aria-pressed="false">표</button>
+            </div>
+          </div>
+        </div>
+        <div id="sectorTreemapView">
+          <div id="treemapWrap" class="treemap-view" style="width:100%"></div>
+        </div>
+        <div id="sectorTableView" style="display:none">
+          <div class="tbl-scroll" style="max-height:none">
+            <table id="sectorTable">
+              <thead><tr>
+                <th style="text-align:left">업종</th>
+                <th>종목 수</th>
+                <th>평균 RS</th>
+                <th>8조건 통과율</th>
+                <th>진입가능(VCP)</th>
+                <th>평균 회전율</th>
+              </tr></thead>
+              <tbody id="sectorTbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="sectorActiveNote" class="tbl-note" style="text-align:left;margin-top:8px;display:none"></div>
       </div>
-      <div id="sectorTableView" style="display:none">
-        <div class="tbl-scroll" style="max-height:none">
-          <table id="sectorTable">
+
+      <div id="mainTab-missed" class="main-tab-content" style="display:none">
+        <div id="missedFailNote" class="fail-note" hidden></div>
+        <div class="tab-subhead">
+          <div style="background:#FFF3CD;border:1px solid #F0DDB8;border-radius:8px;
+                      padding:8px 12px;font-size:11px;color:#8a6d00;flex:1 1 auto">
+            ⚠ 이 패널은 <b>매매 신호가 아닙니다.</b> VCP가 "진입가능"을 못 낸 채 지나간 패턴을
+            사후에 복기하는 참고용입니다. 아래 "관찰 중" 종목은 아직 결론이 안 난 상태라
+            entry_ready로 이어질 수도, 그냥 지나갈 수도 있습니다 — 지금 매수하라는 뜻이 아닙니다.
+          </div>
+          <div class="seg" role="group" aria-label="놓친패턴 시장">
+            <button data-missedmkt="KR" aria-pressed="true">한국</button>
+            <button data-missedmkt="US" aria-pressed="false">미국</button>
+          </div>
+        </div>
+
+        <div class="missed-subhead-row">
+          <h4 style="font-size:12px;color:var(--ink-2);margin:0">
+            관찰 중 (형성 중 · 아직 결론 안 남) <span id="missedDevelopingCount" class="count-badge"></span></h4>
+          <div class="missed-toolbar">
+            <input type="search" id="missedDevelopingSearch" placeholder="종목명 또는 코드 검색" class="mini-search">
+            <button id="missedDevelopingExcelBtn" class="mini-dl-btn xl">Excel</button>
+            <button id="missedDevelopingPdfBtn" class="mini-dl-btn pdf">PDF</button>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="max-height:240px">
+          <table id="missedDevelopingTable">
             <thead><tr>
-              <th style="text-align:left">업종</th>
-              <th>종목 수</th>
-              <th>평균 RS</th>
-              <th>8조건 통과율</th>
-              <th>진입가능(VCP)</th>
-              <th>평균 회전율</th>
+              <th data-col="0" style="text-align:left">종목명</th><th data-col="1">코드</th>
+              <th data-col="2">형성 중 시작일</th><th data-col="3">관찰 일수</th>
             </tr></thead>
-            <tbody id="sectorTbody"></tbody>
+            <tbody id="missedDevelopingTbody"></tbody>
+          </table>
+        </div>
+
+        <div class="missed-subhead-row" style="margin-top:14px">
+          <h4 style="font-size:12px;color:var(--ink-2);margin:0">
+            이미 놓침 (과열로 확정됨 · 최근 90일) <span id="missedConfirmedCount" class="count-badge"></span></h4>
+          <div class="missed-toolbar">
+            <input type="search" id="missedConfirmedSearch" placeholder="종목명 또는 코드 검색" class="mini-search">
+            <button id="missedConfirmedExcelBtn" class="mini-dl-btn xl">Excel</button>
+            <button id="missedConfirmedPdfBtn" class="mini-dl-btn pdf">PDF</button>
+          </div>
+        </div>
+        <div class="tbl-scroll" style="max-height:280px">
+          <table id="missedConfirmedTable">
+            <thead><tr>
+              <th data-col="0" style="text-align:left">종목명</th><th data-col="1">코드</th>
+              <th data-col="2">형성중 시작일</th><th data-col="3">과열 확인일</th>
+              <th data-col="4">놓친수익률</th><th data-col="5">이후 회복</th>
+            </tr></thead>
+            <tbody id="missedConfirmedTbody"></tbody>
           </table>
         </div>
       </div>
-      <div id="sectorActiveNote" class="tbl-note" style="text-align:left;margin-top:8px;display:none"></div>
+
+      <div id="mainTab-macro" class="main-tab-content" style="display:none">
+        <div id="idxCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))"></div>
+        <div id="idxCards2" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin-top:8px"></div>
+
+        <section class="macro-breadth" id="breadthSection" hidden>
+          <div class="macro-h" style="margin-top:16px">시장 폭</div>
+          <div id="breadthCards" class="idx-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))"></div>
+        </section>
+      </div>
+
     </div>
   </div>
 </section>
+
+<div id="sectorFilterBanner">
+  <label>
+    <input type="checkbox" id="sectorFilterBannerCheck" onchange="if(!this.checked && window.clearSectorFilter) window.clearSectorFilter();">
+    <span id="sectorFilterBannerText"></span>
+  </label>
+</div>
 
 <header>
   <div class="hrow">
@@ -1157,6 +1244,9 @@ const CURRENT = "__CURRENT__";
 const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
 const MACRO_SNAPSHOT = __MACRO_SNAPSHOT__;   // market_macro.py 결과 (없으면 [])
 const BREADTH_SNAPSHOT = __BREADTH_SNAPSHOT__;   // market_breadth.py 결과 (없으면 [])
+const MISSED_SNAPSHOT = __MISSED_SNAPSHOT__;   // missed_patterns_data.py 결과 (없으면 {confirmed:[],developing:[]})
+const SECTOR_STATUS = __SECTOR_STATUS__;   // {status:"ok"/"stale"/"failed", cache_age_days, error}
+const MISSED_STATUS = __MISSED_STATUS__;   // {status:"ok"/"failed", error}
 const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만, 없으면 {})
 
 // ── 시장 폭 패널 렌더 ─────────────────────────────────────
@@ -1714,21 +1804,40 @@ document.getElementById("chartClose").addEventListener("click",()=>{
   open=null; hideChart(); render();
 });
 
-// ── 매크로 지표·시장 폭 접기 ──────────────────────────────
-// [2026-09-14] 둘 다 "하루에 한 번 훑어보면 그만"인 정보라, 확인 후엔
-// 닫기 버튼 하나로 두 섹션(매크로 지표 + 시장 폭)을 한꺼번에 접는다.
-// 시장 폭은 매크로 지표 안에 중첩된 구조라, 부모(macroCollapseBody)만
-// 접으면 자동으로 같이 접힌다 — 시장 폭 자체의 표시 여부(hidden)는
-// 건드리지 않으므로 다시 펼쳤을 때 원래 상태 그대로 돌아온다.
+// ── 상단 정보 탭(업종별 강도 / 놓친 패턴 관찰 / 매크로 지표) ──────
+// [2026-09-20] 예전엔 매크로 지표·업종 강도·놓친 패턴 관찰이 각자
+// 따로 접고 펴는 3개의 독립 섹션이었다. 세 개를 한 화면에 늘어놓으니
+// 너무 길어져서, 하나의 틀 안에서 탭으로 전환하고 접힘도 하나로
+// 통일했다. 각 탭 내용물(트리맵·표·카드 등) 자체는 안 건드리고,
+// "어느 탭을 보여줄지"만 이 스크립트가 담당한다.
 (function(){
-  const btn = document.getElementById("macroCollapseBtn");
-  const body = document.getElementById("macroCollapseBody");
-  if(!btn || !body) return;
-  btn.addEventListener("click", () => {
-    const collapsed = body.classList.toggle("collapsed");
-    btn.textContent = collapsed ? "펼치기" : "닫기";
-    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  const collapseBtn = document.getElementById("insightCollapseBtn");
+  const collapseBody = document.getElementById("insightCollapseBody");
+  const tabButtons = document.querySelectorAll('.seg[aria-label="상단 정보 탭"] button');
+  const panels = {
+    sector: document.getElementById("mainTab-sector"),
+    missed: document.getElementById("mainTab-missed"),
+    macro: document.getElementById("mainTab-macro"),
+  };
+
+  function showTab(name){
+    Object.entries(panels).forEach(([k, el]) => { el.style.display = (k === name) ? "" : "none"; });
+    tabButtons.forEach(b => b.setAttribute("aria-pressed", b.dataset.maintab === name ? "true" : "false"));
+  }
+
+  tabButtons.forEach(btn => {
+    btn.addEventListener("click", () => showTab(btn.dataset.maintab));
   });
+
+  if(collapseBtn && collapseBody){
+    collapseBtn.addEventListener("click", () => {
+      const collapsed = collapseBody.classList.toggle("collapsed");
+      collapseBtn.textContent = collapsed ? "펼치기" : "닫기";
+      collapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    });
+  }
+
+  showTab("sector");   // 기본 탭
 })();
 
 // ── 미국 시가총액 원화 환산 토글 ──────────────────────────
@@ -1757,16 +1866,58 @@ document.addEventListener("click", e=>{
 
 // ── 업종 강도 패널 (트리맵 / 표) ────────────────────────────
 // [2026-09-15] sepa_scanner.py가 붙인 실제 sector 필드를 그대로 쓴다.
-// 업종 분류가 하나도 없으면(pykrx 미설치·네트워크 실패 등) 패널 자체를
-// 숨긴다 — 빈 트리맵을 보여주는 것보다 아예 안 보이는 게 덜 헷갈린다.
+// [2026-09-20] 이제 탭 구조라 "데이터 없으면 섹션 전체를 숨긴다"는 예전
+// 방식을 못 쓴다(탭 버튼 자체는 항상 있어야 하므로). 대신 SECTOR_STATUS로
+// "정상"·"오래된 캐시로 대체"·"완전 실패"를 구분해서 안내 문구와 탭
+// 경고 배지로 보여준다.
 (function(){
-  const section = document.getElementById("sectorSection");
+  const failNote = document.getElementById("sectorFailNote");
+  const tabWarn = document.getElementById("sectorTabWarn");
+  // [2026-09-20] 한국·미국 업종분류는 완전히 다른 메커니즘이라 상태도
+  // 따로 온다: {KR:{status,...}, US:{status,...}}. 탭 경고 배지는
+  // "둘 중 하나라도 문제 있으면" 켜고, 안내 문구는 "지금 보고 있는
+  // 시장" 기준으로만 보여준다 — 미국 탭을 보는데 한국 실패 문구가
+  // 뜨면 오히려 헷갈린다.
+  const statusByMkt = (typeof SECTOR_STATUS !== "undefined" && SECTOR_STATUS) || {};
+  const stKR = statusByMkt.KR || {status: "ok"};
+  const stUS = statusByMkt.US || {status: "ok"};
+  tabWarn.hidden = !(stKR.status !== "ok" || stUS.status !== "ok");
+  // [2026-09-20] 경고 아이콘에 마우스를 올리면 이유가 보이도록 title
+  // 속성(브라우저 기본 툴팁)을 채운다. 한국·미국 둘 다 문제가 있을 수
+  // 있으니 있는 것만 골라 줄바꿈으로 같이 보여준다.
+  const warnReasons = [];
+  if(stKR.status === "failed") warnReasons.push(`한국: 업종 분류 계산 실패${stKR.error ? " ("+stKR.error+")" : ""}`);
+  else if(stKR.status === "stale") warnReasons.push(`한국: ${stKR.cache_age_days}일 전 데이터로 대체됨(오늘 갱신 실패)`);
+  if(stUS.status === "failed") warnReasons.push(`미국: 업종 분류 계산 실패${stUS.error ? " ("+stUS.error+")" : ""}`);
+  else if(stUS.status === "stale") warnReasons.push(`미국: ${stUS.cache_age_days}일 전 데이터로 대체됨(오늘 갱신 실패)`);
+  if(warnReasons.length) tabWarn.title = warnReasons.join("\\n");
+
+  function renderFailNote(){
+    const st = sectorMarket === "KR" ? stKR : stUS;
+    failNote.classList.remove("stale");
+    if(st.status === "failed"){
+      failNote.hidden = false;
+      failNote.innerHTML = `⚠ ${MARKET_LABEL[sectorMarket]} 업종 분류 계산에 실패했습니다 — 다음 스캔에서 다시 시도됩니다.`;
+    } else if(st.status === "stale"){
+      failNote.hidden = false;
+      failNote.classList.add("stale");
+      failNote.innerHTML = `⚠ 오늘 ${MARKET_LABEL[sectorMarket]} 업종 분류 갱신에 실패해 ${st.cache_age_days}일 전 데이터를 보여드립니다.`;
+    } else {
+      failNote.hidden = true;
+    }
+  }
+
   const krHasSector = DATA.some(d => d.market==="KR" && d.sector);
   const usHasSector = DATA.some(d => d.market==="US" && d.sector);
-  if(!krHasSector && !usHasSector) return;   // 섹션이 hidden인 채로 남는다
-  section.hidden = false;
 
   let sectorMarket = krHasSector ? "KR" : "US";   // 데이터 있는 쪽을 기본값으로
+  // [2026-09-20] 한국 업종 데이터가 없어서 기본값이 US로 자동 전환될 때,
+  // 버튼의 시각적 선택 표시(파란 배경)는 그대로 "한국"에 남아있던 버그가
+  // 있었다 — 내부 상태(sectorMarket)와 화면(aria-pressed)이 따로 놀아서,
+  // "한국 탭이 눌려있는데 미국 데이터가 보인다"는 혼란을 일으켰다.
+  document.querySelectorAll('.seg[aria-label="업종 강도 시장"] button').forEach(b=>{
+    b.setAttribute("aria-pressed", b.dataset.sectormkt === sectorMarket ? "true" : "false");
+  });
 
   const MAX_SECTORS_SHOWN = 14;   // 업종이 너무 많으면 박스가 잘게 쪼개져 글씨가 잘린다
 
@@ -1916,13 +2067,7 @@ document.addEventListener("click", e=>{
 
   function toggleSector(name){
     activeSector = (activeSector === name) ? null : name;
-    const note = document.getElementById("sectorActiveNote");
-    if(activeSector){
-      note.style.display = "block";
-      note.innerHTML = `<b>"${esc(activeSector)}"</b> 업종만 표시 중 — 다시 클릭하면 해제됩니다.`;
-    } else {
-      note.style.display = "none";
-    }
+    updateSectorActiveDisplays();
     // 업종 필터는 지금 선택된 시장(sectorMarket) 기준이라, 하단 표의
     // 시장 탭도 그에 맞춰 전환한다 — 미국 업종을 클릭했는데 하단 표는
     // 한국만 보이면 필터링이 안 되는 것처럼 보인다.
@@ -1933,6 +2078,41 @@ document.addEventListener("click", e=>{
     renderSectorTable();
     render();
   }
+
+  // [2026-09-20] "업종 필터 적용 중" 문구를 업종 탭 안(sectorActiveNote)과
+  // Momentum Watchlist 바로 위(sectorFilterBanner, 어느 탭에 가 있든 항상
+  // 보이는 자리) 두 군데에 동시에 반영한다. 같은 문구를 두 곳에 따로
+  // 관리하면 나중에 하나만 고치고 잊어버리기 쉬워서, 한 함수에서 같이
+  // 갱신한다.
+  const FILTER_LABEL = name => `"${esc(name)}" 업종 필터 적용 중`;
+  function updateSectorActiveDisplays(){
+    const note = document.getElementById("sectorActiveNote");
+    const banner = document.getElementById("sectorFilterBanner");
+    const bannerText = document.getElementById("sectorFilterBannerText");
+    const bannerCheck = document.getElementById("sectorFilterBannerCheck");
+    if(activeSector){
+      note.style.display = "block";
+      note.innerHTML = `<b>${FILTER_LABEL(activeSector)}</b> — 다시 클릭하면 해제됩니다.`;
+      banner.style.display = "flex";
+      bannerText.innerHTML = FILTER_LABEL(activeSector);
+      bannerCheck.checked = true;
+    } else {
+      note.style.display = "none";
+      banner.style.display = "none";
+    }
+  }
+
+  // Watchlist 위 배너의 체크박스를 해제하면 업종 필터를 끈다. 업종 강도
+  // 탭에서 같은 업종을 다시 눌러 끄는 것과 동일하게 동작해야 하므로,
+  // toggleSector 대신 이 전역 함수를 배너 쪽에서 직접 부른다.
+  window.clearSectorFilter = function(){
+    if(!activeSector) return;
+    activeSector = null;
+    updateSectorActiveDisplays();
+    renderTreemap();
+    renderSectorTable();
+    render();
+  };
 
   const MARKET_LABEL = {KR:"한국", US:"미국"};
   function updateSectorHint(){
@@ -1947,13 +2127,15 @@ document.addEventListener("click", e=>{
       document.querySelectorAll('.seg[aria-label="업종 강도 시장"] button')
         .forEach(b=>b.setAttribute("aria-pressed", b===btn ? "true" : "false"));
       activeSector = null;   // 시장을 바꾸면 이전 시장 업종 선택은 의미가 없어져서 해제
-      document.getElementById("sectorActiveNote").style.display = "none";
+      updateSectorActiveDisplays();
       updateSectorHint();
+      renderFailNote();
       renderTreemap();
       renderSectorTable();
     });
   });
   updateSectorHint();
+  renderFailNote();
 
   document.querySelectorAll('.seg[aria-label="업종 강도 보기"] button').forEach(btn=>{
     btn.addEventListener("click", ()=>{
@@ -1965,14 +2147,202 @@ document.addEventListener("click", e=>{
     });
   });
 
-  document.getElementById("sectorCollapseBtn").addEventListener("click", (e)=>{
-    const body = document.getElementById("sectorCollapseBody");
-    const collapsed = body.classList.toggle("collapsed");
-    e.target.textContent = collapsed ? "펼치기" : "닫기";
-  });
-
   renderTreemap();
   renderSectorTable();
+})();
+
+// ── 놓친 패턴 관찰 패널 ──────────────────────────────────────
+// [2026-09-20] missed_patterns_data.py가 매일 계산한 결과를 그대로
+// 보여준다. 이 패널 자체는 "매매 신호"가 아니라 "사후 분석·패턴 학습용"
+// 이라는 걸 화면에 명확히 표기한다(경고 배너). 업종 강도와 마찬가지로
+// 탭 구조라 "섹션 자체를 숨긴다"는 예전 방식 대신 MISSED_STATUS로
+// 실패 여부를 안내한다 — 이 데이터는 업종분류와 달리 캐시가 없어서,
+// 실패하면 옛날 걸로 대체할 방법 없이 "실패했습니다"만 보여준다.
+(function(){
+  const failNote = document.getElementById("missedFailNote");
+  const tabWarn = document.getElementById("missedTabWarn");
+  const st = (typeof MISSED_STATUS !== "undefined" && MISSED_STATUS) || {status: "ok"};
+  if(st.status === "failed"){
+    failNote.hidden = false;
+    failNote.innerHTML = `⚠ 놓친 패턴 계산에 실패했습니다 — 다음 스캔에서 다시 시도됩니다.`;
+    tabWarn.hidden = false;
+    tabWarn.title = `놓친 패턴 계산 실패${st.error ? " ("+st.error+")" : ""}`;
+  }
+
+  const confirmed = MISSED_SNAPSHOT.confirmed || [];
+  const developing = MISSED_SNAPSHOT.developing || [];
+
+  let missedMarket = confirmed.some(r=>r.market==="KR") || developing.some(r=>r.market==="KR")
+    ? "KR" : "US";
+
+  let devSortKey = "days_watching", devSortDir = -1;
+  let devSearch = "";
+  let confSortKey = "extended_date", confSortDir = -1;
+  let confSearch = "";
+
+  function matchSearch(r, q){
+    if(!q) return true;
+    const s = q.trim().toLowerCase();
+    return r.name.toLowerCase().includes(s) || r.ticker.toLowerCase().includes(s);
+  }
+
+  function sortRows(rows, key, dir){
+    return rows.slice().sort((a,b)=>{
+      const x = a[key], y = b[key];
+      if(typeof x === "string") return x.localeCompare(y) * dir;
+      if(typeof x === "boolean") return ((x===y)?0:(x?1:-1)) * dir;
+      return ((x??0) - (y??0)) * dir;
+    });
+  }
+
+  function renderDeveloping(){
+    let rows = developing.filter(r => r.market === missedMarket && matchSearch(r, devSearch));
+    rows = sortRows(rows, devSortKey, devSortDir);
+    document.getElementById("missedDevelopingCount").textContent = `${rows.length}개`;
+    const tbody = document.getElementById("missedDevelopingTbody");
+    if(rows.length === 0){
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px 0">현재 관찰 중인 종목이 없습니다.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => `<tr>
+      <td>${esc(r.name)}</td>
+      <td style="color:#8B939D">${esc(r.ticker)}</td>
+      <td>${r.developing_date}</td>
+      <td class="num">${r.days_watching}일</td>
+    </tr>`).join("");
+  }
+
+  function renderConfirmed(){
+    let rows = confirmed.filter(r => r.market === missedMarket && matchSearch(r, confSearch));
+    rows = sortRows(rows, confSortKey, confSortDir);
+    document.getElementById("missedConfirmedCount").textContent = `${rows.length}개`;
+    const tbody = document.getElementById("missedConfirmedTbody");
+    if(rows.length === 0){
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:10px 0">최근 90일 내 해당 종목이 없습니다.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(r => {
+      const color = r.missed_return_pct >= 0 ? "#C0343B" : "#1B5FA6";
+      const sign = r.missed_return_pct >= 0 ? "+" : "";
+      const recov = r.recovered_later
+        ? `<span style="color:#1a7f37;font-weight:700">회복함(${r.recovered_date})</span>`
+        : '<span style="color:#8B939D">회복 안 함</span>';
+      return `<tr>
+        <td>${esc(r.name)}</td>
+        <td style="color:#8B939D">${esc(r.ticker)}</td>
+        <td>${r.developing_date}</td>
+        <td>${r.extended_date}</td>
+        <td style="color:${color};font-weight:700">${sign}${r.missed_return_pct.toFixed(2)}%</td>
+        <td>${recov}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // 헤더 클릭 정렬(단일 클릭, 같은 헤더 다시 누르면 방향 전환)
+  function wireSort(tableId, keys, getKey, getDir, setKey, setDir, renderFn){
+    document.querySelectorAll(`#${tableId} th[data-col]`).forEach((th, i)=>{
+      th.style.cursor = "pointer";
+      th.addEventListener("click", ()=>{
+        const key = keys[i];
+        if(getKey() === key) setDir(getDir() * -1);
+        else { setKey(key); setDir(-1); }
+        renderFn();
+      });
+    });
+  }
+  wireSort("missedDevelopingTable", ["name","ticker","developing_date","days_watching"],
+    ()=>devSortKey, ()=>devSortDir, k=>devSortKey=k, d=>devSortDir=d, renderDeveloping);
+  wireSort("missedConfirmedTable", ["name","ticker","developing_date","extended_date","missed_return_pct","recovered_later"],
+    ()=>confSortKey, ()=>confSortDir, k=>confSortKey=k, d=>confSortDir=d, renderConfirmed);
+
+  document.getElementById("missedDevelopingSearch").addEventListener("input", e=>{
+    devSearch = e.target.value; renderDeveloping();
+  });
+  document.getElementById("missedConfirmedSearch").addEventListener("input", e=>{
+    confSearch = e.target.value; renderConfirmed();
+  });
+
+  // Excel(HTML 표를 .xls로 저장하는 방식 — 메인 워치리스트 Excel 버튼과 동일 기법)
+  // [2026-09-20] 이중따옴표를 \" 로 이스케이프하는 방식은 Python 삼중따옴표
+  // 문자열 안에서 백슬래시가 먹혀버리는 문제를 반복적으로 일으켰다.
+  // 메인 워치리스트 Excel 버튼(아래 exportExcel)처럼 작은따옴표로 JS
+  // 문자열을 감싸면 안의 큰따옴표를 이스케이프할 필요 자체가 없어진다.
+  function downloadExcel(rows, headers, rowMapper, filename){
+    let html = '\ufeff<html xmlns:o="urn:schemas-microsoft-com:office:office" '
+      + 'xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">'
+      + '<head><meta charset="UTF-8"></head><body><table border="1">';
+    html += "<tr>" + headers.map(h=>`<th>${h}</th>`).join("") + "</tr>";
+    for(const r of rows) html += "<tr>" + rowMapper(r).map(c=>`<td>${esc(String(c))}</td>`).join("") + "</tr>";
+    html += "</table></body></html>";
+    const blob = new Blob([html], {type: "application/vnd.ms-excel;charset=utf-8"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
+
+  // PDF(새 창에 표만 담아 인쇄 대화상자를 띄움 — 외부 라이브러리 없이도 어디서나 동작)
+  function printAsPdf(rows, headers, rowMapper, title){
+    const win = window.open("", "_blank");
+    if(!win) { alert("팝업이 차단되었습니다. 팝업 허용 후 다시 시도해 주세요."); return; }
+    let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+      <style>
+        body{font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;padding:24px;color:#12161C}
+        h2{font-size:15px;color:#1B2A4A;margin:0 0 12px}
+        table{width:100%;border-collapse:collapse;font-size:11.5px}
+        th{background:#1B2A4A;color:#fff;padding:6px 8px;text-align:left}
+        td{padding:6px 8px;border-bottom:1px solid #ddd}
+      </style></head><body>
+      <h2>${title}</h2>
+      <table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map(r=>`<tr>${rowMapper(r).map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</tbody>
+      </table></body></html>`;
+    win.document.write(html); win.document.close(); win.focus();
+    setTimeout(()=>win.print(), 300);
+  }
+
+  document.getElementById("missedDevelopingExcelBtn").addEventListener("click", ()=>{
+    const rows = sortRows(developing.filter(r=>r.market===missedMarket && matchSearch(r, devSearch)), devSortKey, devSortDir);
+    downloadExcel(rows, ["종목명","코드","형성중 시작일","관찰일수"],
+      r=>[r.name, r.ticker, r.developing_date, r.days_watching],
+      `SEPA_관찰중_${missedMarket}_${CURRENT.match(/\\d{8}/)||""}.xls`);
+  });
+  document.getElementById("missedDevelopingPdfBtn").addEventListener("click", ()=>{
+    const rows = sortRows(developing.filter(r=>r.market===missedMarket && matchSearch(r, devSearch)), devSortKey, devSortDir);
+    printAsPdf(rows, ["종목명","코드","형성중 시작일","관찰일수"],
+      r=>[esc(r.name), r.ticker, r.developing_date, r.days_watching+"일"],
+      `관찰 중 (${MARKET_LABEL_M[missedMarket]})`);
+  });
+  document.getElementById("missedConfirmedExcelBtn").addEventListener("click", ()=>{
+    const rows = sortRows(confirmed.filter(r=>r.market===missedMarket && matchSearch(r, confSearch)), confSortKey, confSortDir);
+    downloadExcel(rows, ["종목명","코드","형성중 시작일","과열확인일","놓친수익률(%)","이후회복"],
+      r=>[r.name, r.ticker, r.developing_date, r.extended_date, r.missed_return_pct,
+          r.recovered_later ? `회복함(${r.recovered_date})` : "회복 안 함"],
+      `SEPA_이미놓침_${missedMarket}_${CURRENT.match(/\\d{8}/)||""}.xls`);
+  });
+  document.getElementById("missedConfirmedPdfBtn").addEventListener("click", ()=>{
+    const rows = sortRows(confirmed.filter(r=>r.market===missedMarket && matchSearch(r, confSearch)), confSortKey, confSortDir);
+    printAsPdf(rows, ["종목명","코드","형성중 시작일","과열확인일","놓친수익률","이후회복"],
+      r=>[esc(r.name), r.ticker, r.developing_date, r.extended_date,
+          (r.missed_return_pct>=0?"+":"")+r.missed_return_pct.toFixed(2)+"%",
+          r.recovered_later ? `회복함(${r.recovered_date})` : "회복 안 함"],
+      `이미 놓침 (${MARKET_LABEL_M[missedMarket]})`);
+  });
+
+  const MARKET_LABEL_M = {KR:"한국", US:"미국"};
+
+  document.querySelectorAll('.seg[aria-label="놓친패턴 시장"] button').forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      missedMarket = btn.dataset.missedmkt;
+      document.querySelectorAll('.seg[aria-label="놓친패턴 시장"] button')
+        .forEach(b=>b.setAttribute("aria-pressed", b===btn ? "true" : "false"));
+      renderDeveloping();
+      renderConfirmed();
+    });
+  });
+
+  renderDeveloping();
+  renderConfirmed();
 })();
 
 // ── 실행 기록 팝업 ────────────────────────────────────────
@@ -2430,7 +2800,9 @@ def _day_list(out_dir: str, current_file: str) -> list:
 def build(csv_path: str, out_path: str = None, open_browser: bool = True,
          hist_dir: str = None, generate_strategy: bool = True,
          session: str = "MANUAL", macro_snapshot: list = None,
-         data_as_of: str = None, breadth_snapshot: list = None) -> str:
+         data_as_of: str = None, breadth_snapshot: list = None,
+         missed_patterns_snapshot: dict = None,
+         sector_status: dict = None, missed_status: dict = None) -> str:
     """
     data_as_of: 'YYYYMMDD'. 실제 가격 데이터의 기준일(장전 스캔이면 --data-date
     로 고정한 직전 영업일). run_daily.py가 CSV 파일명을 오늘 날짜로 맞추기
@@ -2595,6 +2967,11 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             .replace("__ACTIONS_URL__", _actions_url())
             .replace("__MACRO_SNAPSHOT__", json.dumps(macro_snapshot or [], ensure_ascii=False))
             .replace("__BREADTH_SNAPSHOT__", json.dumps(breadth_snapshot or [], ensure_ascii=False))
+            .replace("__MISSED_SNAPSHOT__",
+                     json.dumps(missed_patterns_snapshot or {"confirmed": [], "developing": []},
+                                ensure_ascii=False))
+            .replace("__SECTOR_STATUS__", json.dumps(sector_status or {"status": "ok"}, ensure_ascii=False))
+            .replace("__MISSED_STATUS__", json.dumps(missed_status or {"status": "ok"}, ensure_ascii=False))
             .replace("__VCP_CHARTS__", json.dumps(vcp_charts, ensure_ascii=False))
             .replace("__CHANGELOG_BTN__",
                      '<button id="changelogBtn" class="log-btn">작업 로그</button>' if changelog_html else "")
