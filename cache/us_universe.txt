@@ -54,13 +54,13 @@ BALL	Ball Corporation
 BAX	Baxter International
 BBY	Best Buy
 BDX	Becton Dickinson
+BE	Bloom Energy
 BEN	Franklin Resources
 BF-B	Brown–Forman
 BG	Bunge Global
 BIIB	Biogen
 BKNG	Booking Holdings
 BKR	Baker Hughes
-BLDR	Builders FirstSource
 BLK	BlackRock
 BMY	Bristol Myers Squibb
 BNY	BNY Mellon
@@ -241,6 +241,7 @@ ICE	Intercontinental Exchange
 IDXX	Idexx Laboratories
 IEX	IDEX Corporation
 IFF	International Flavors & Fragrances
+ILMN	Illumina, Inc.
 INCY	Incyte
 INTC	Intel
 INTU	Intuit
@@ -351,6 +352,7 @@ ORCL	Oracle Corporation
 ORLY	O'Reilly Automotive
 OTIS	Otis Worldwide
 OXY	Occidental Petroleum
+P	Everpure
 PANW	Palo Alto Networks
 PAYX	Paychex
 PCAR	Paccar
@@ -424,7 +426,6 @@ SYF	Synchrony Financial
 SYK	Stryker Corporation
 SYY	Sysco
 T	AT&T
-TAP	Molson Coors Beverage Company
 TDG	TransDigm Group
 TDY	Teledyne Technologies
 TECH	Bio-Techne
@@ -446,7 +447,6 @@ TSCO	Tractor Supply
 TSLA	Tesla, Inc.
 TSN	Tyson Foods
 TT	Trane Technologies
-TTD	Trade Desk (The)
 TTWO	Take-Two Interactive
 TXN	Texas Instruments
 TXT	Textron
