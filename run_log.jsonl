@@ -36,3 +36,4 @@
 {"timestamp": "2026-09-20T23:33:54", "session": "PM", "market": "ALL", "stamp": "20260920", "data_as_of": "20260920", "status": "success", "duration_sec": 282.4}
 {"timestamp": "2026-09-21T18:36:30", "session": "PM", "market": "ALL", "stamp": "20260921", "data_as_of": "20260921", "status": "success", "duration_sec": 320.3}
 {"timestamp": "2026-09-22T03:33:36", "session": "PM", "market": "ALL", "stamp": "20260922", "data_as_of": "20260922", "status": "success", "duration_sec": 353.0}
+{"timestamp": "2026-09-22T08:23:31", "session": "AM", "market": "ALL", "stamp": "20260922", "data_as_of": "20260921", "status": "success", "duration_sec": 373.1}
