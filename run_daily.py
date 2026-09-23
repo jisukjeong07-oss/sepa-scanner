@@ -243,12 +243,44 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
                                      missed_patterns_snapshot=missed_patterns_snapshot,
                                      sector_status=sector_status, missed_status=missed_status)
 
+    # 2.9단계: 하루치 결과를 latest.json 한 파일로 내보낸다.
+    # 외부 도구(Claude 등)가 PDF 6개를 따로 받지 않고 이 파일 하나만 읽으면
+    # 되게 하는 것이 목적이다. 관찰 중(developing)·이미 놓침(confirmed)·
+    # 시장 폭·매크로까지 전부 담긴다.
+    #
+    # out_dir 을 history/ 로 두는 이유:
+    #   Actions 러너는 매 실행마다 새로 뜬다. 커밋되지 않는 폴더에 쓰면
+    #   다음 실행 때 어제 파일이 없어 prev_price(전일 종가)를 못 채운다.
+    #   history/ 는 daily.yml 의 Push 스텝이 `git add -A history/` 로 통째로
+    #   커밋하므로 추가 설정 없이 그대로 쌓인다. breadth/ 가 매일 사라지던
+    #   문제(2026-09-14)와 같은 함정이라 같은 방식으로 피한다.
+    #
+    # 부가 산출물이므로 실패해도 리포트·대시보드 생성에는 영향이 없다.
+    latest_path = None
+    try:
+        import export_latest
+        latest_path = export_latest.write_latest(
+            csv_path,
+            out_dir=make_dashboard.HIST_DIR,
+            stage2_csv=stage2_path,
+            session=session,
+            data_as_of=scan_stamp,
+            missed_patterns=missed_patterns_snapshot,
+            breadth=breadth_snapshot,
+            macro=macro_snapshot,
+            sector_status=sector_status,
+        )
+    except Exception as e:
+        print(f"[경고] latest.json 내보내기 건너뜀(다른 산출물엔 영향 없음): {e}")
+
     print(f"\n완료 [{session}] 대상일자={stamp}")
     if as_of:
         print(f"  데이터 기준 : {as_of} 종가")
     print(f"  PDF        : {pdf_path}")
     print(f"  대시보드   : {html_path}")
     print(f"  원본 CSV   : {csv_path}")
+    if latest_path:
+        print(f"  통합 JSON  : {latest_path}")
 
     _append_run_log({
         "timestamp": _run_start.isoformat(timespec="seconds"),

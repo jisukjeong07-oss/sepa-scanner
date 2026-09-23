@@ -266,6 +266,11 @@ jobs:
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
           cp history/manifest.json site/ 2>/dev/null || true
+          # [2026-09-23] 하루치 결과를 담은 통합 JSON. 날짜가 안 붙은 고정
+          # 이름이라 외부 도구가 항상 같은 주소로 최신본을 읽을 수 있다.
+          # (https://<pages>/latest.json) PDF를 여러 개 내려받아 올리던
+          # 수작업을 이 파일 하나로 대체하는 것이 목적이다.
+          cp history/latest.json   site/ 2>/dev/null || true
           cp history/*.pdf site/ 2>/dev/null || true
           cp output/*.pdf  site/ 2>/dev/null || true
 
@@ -282,6 +287,11 @@ jobs:
           echo " 배포 파일 수  : $(ls site/ | wc -l)"
           echo " PDF 개수      : $(ls site/*.pdf 2>/dev/null | wc -l)"
           echo " index.html    : $latest"
+          if [ -f site/latest.json ]; then
+            echo " latest.json   : $(du -h site/latest.json | cut -f1)"
+          else
+            echo "::warning::site/latest.json 이 없습니다. export_latest 단계가 실패했거나 history/ 에 파일이 안 만들어졌습니다."
+          fi
           echo "=============================================="
 
       - uses: actions/upload-pages-artifact@v3
