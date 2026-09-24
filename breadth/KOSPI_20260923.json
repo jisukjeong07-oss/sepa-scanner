@@ -8,12 +8,12 @@
   "net_hl": -28,
   "above200_pct": 22.76,
   "above50_pct": 44.69,
-  "n_universe": 875,
+  "n_universe": 874,
   "n_valid": 848,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KOSPI",
   "data_date": "20260923",
   "source": "live",
-  "generated_at": "2026-09-24T09:13:37"
+  "generated_at": "2026-09-25T00:08:54"
 }
