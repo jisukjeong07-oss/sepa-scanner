@@ -4,16 +4,16 @@
   "tt7_count": 137,
   "trend_ex_rs_pct": 3.95,
   "nh52": 51,
-  "nl52": 150,
-  "net_hl": -99,
-  "above200_pct": 20.92,
-  "above50_pct": 51.76,
+  "nl52": 149,
+  "net_hl": -98,
+  "above200_pct": 20.93,
+  "above50_pct": 51.78,
   "n_universe": 2737,
-  "n_valid": 2581,
+  "n_valid": 2580,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KR_TOTAL",
   "data_date": "20260923",
   "source": "live",
-  "generated_at": "2026-09-28T09:10:53"
+  "generated_at": "2026-09-29T05:05:52"
 }
