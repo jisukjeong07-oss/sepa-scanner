@@ -452,16 +452,31 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
             lows.append(df["Low"])
         time.sleep(1.0)
 
-    close = pd.concat(closes, axis=1)
-    volume = pd.concat(volumes, axis=1)
+    close = pd.concat(closes, axis=1).sort_index()
+    volume = pd.concat(volumes, axis=1).sort_index()
+
+    # [2026-09-29] 미완성 봉(빈 날짜 행)을 여기서 먼저 걸러낸다.
+    # 실사례: 9/29 장전(KST) 실행 때 미국 9/28 장 마감 직후라, yfinance가
+    # 9/28 행을 가격·거래량이 빈 채로 내려줬다. 이 행이 그대로 반환되면
+    # us_data_cache.py가 캐시에 저장하고 20시간 동안 재사용해서, 같은 날
+    # 다시 돌려도 잘못된 결과가 반복된다. 여기서 막으면 캐시에도 안 들어간다.
+    # (screen()에도 같은 방어가 있다 — 한국 경로까지 덮는 마지막 안전장치)
+    good = close.notna().mean(axis=1).ge(0.5) & volume.notna().mean(axis=1).ge(0.5)
+    if (~good).any():
+        bad_dates = ", ".join(str(d.date()) for d in close.index[~good])
+        print(f"[US] 미완성/빈 날짜 행 제외: {bad_dates} "
+              f"(yfinance가 가격·거래량을 아직 확정하지 않은 봉)")
+        close, volume = close.loc[good], volume.loc[good]
+
     value = close * volume          # 거래대금(달러)
     meta = pd.DataFrame({"market": "US"}, index=close.columns)
-    out = {"close": close.sort_index(), "value": value.sort_index(), "meta": meta}
+    out = {"close": close, "value": value, "meta": meta}
     # [2026-09-13] 52주 신고가/VCP 계산용 고가·저가. yfinance가 어차피
     # 같이 내려주는 값이라 추가 호출 비용이 없다.
+    # [2026-09-29] 행(날짜)도 close에 맞춘다 — 위에서 빈 행을 뺐으므로.
     if highs:
-        out["high"] = pd.concat(highs, axis=1).sort_index().reindex(columns=close.columns)
-        out["low"] = pd.concat(lows, axis=1).sort_index().reindex(columns=close.columns)
+        out["high"] = pd.concat(highs, axis=1).sort_index().reindex(index=close.index, columns=close.columns)
+        out["low"] = pd.concat(lows, axis=1).sort_index().reindex(index=close.index, columns=close.columns)
     return out
 
 
@@ -573,6 +588,25 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     close, value = data["close"], data["value"]
     high, low = data.get("high"), data.get("low")
 
+    # [2026-09-29] 미완성 봉(빈 날짜 행) 제거.
+    # 실사례: 9/29 장전 스캔에서 yfinance가 9/28 행을 가격·거래량이 빈 채로
+    # 내려줬다. 아래 close.ffill()이 가격을 9/25 값으로 채워 넣는 바람에
+    # 겉보기엔 정상이었지만, 거래대금은 NaN으로 남아 미국 전 종목이 유동성
+    # 필터에서 탈락했다(8조건 통과 0종목, data_date는 9/28로 잘못 표기).
+    # 수집 경로(fetch_us / us_data_cache / KRX)와 무관하게 여기서 한 번에
+    # 막는다 — 절반 이상 종목의 가격 또는 거래대금이 비어 있는 날짜는
+    # 그 시장이 실제로 거래된 날이 아니거나 아직 확정되지 않은 봉이다.
+    value = value.reindex(index=close.index)
+    row_ok = close.notna().mean(axis=1).ge(0.5) & value.notna().mean(axis=1).ge(0.5)
+    if (~row_ok).any():
+        bad_dates = ", ".join(str(d.date()) for d in close.index[~row_ok])
+        print(f"[{market_tag}] 미완성/빈 날짜 행 제외: {bad_dates} "
+              f"(가격 또는 거래대금이 절반 이상 종목에서 비어 있음)")
+        close, value = close.loc[row_ok], value.loc[row_ok]
+        if high is not None:
+            high = high.reindex(index=close.index)
+            low = low.reindex(index=close.index)
+
     # 데이터가 부족한 종목(신규상장 등) 제외
     valid = close.notna().sum() >= 252
     close = close.loc[:, valid]
@@ -653,6 +687,12 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
         "PASS": passed,
     })
     result = pd.concat([result, conds], axis=1)
+
+    # [2026-09-29] 실제로 계산에 쓰인 마지막 날짜. 위에서 빈 행을 걸러낸
+    # 뒤의 날짜라, 원본 data["close"]의 마지막 날짜와 다를 수 있다.
+    # run()은 이 값을 그대로 쓴다(예전처럼 원본 마지막 날짜로 덮어쓰면
+    # "9/28 기준"이라고 적혀 있는데 실제 가격은 9/25인 상황이 다시 생긴다).
+    result["data_date"] = str(close.index[-1].date())
 
     # [2026-09-15] 회전율용 원값. 시가총액(market_cap)은 run()에서 나중에
     # 붙으므로, 실제 비율(turnover_ratio) 계산은 add_turnover_ratio()가 담당한다.
@@ -797,7 +837,8 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             # data["close"]의 마지막 날짜가 자동으로 전영업일이 되므로,
             # "오늘 날짜 파일인데 실제로는 어제 종가"인 상황을 이 컬럼
             # 하나로 구분할 수 있다.
-            r["data_date"] = str(data["close"].index[-1].date())
+            # [2026-09-29] 값은 screen()이 빈 행을 걸러낸 뒤의 실제 마지막
+            # 날짜로 이미 채워 둔다. 여기서 원본 날짜로 덮어쓰지 않는다.
 
             # [2026-09-16] 스팩(기업인수목적회사)은 실제 사업이 없는 페이퍼컴퍼니라
             # SEPA/VCP가 전제하는 "추세를 만드는 실제 매출·이익 성장"이 애초에
@@ -851,7 +892,7 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             r.insert(0, "name", pd.Series(us_names(r.index)))
             # [2026-09-18] 한국과 같은 이유 — 이 가격이 며칠(미국 현지 기준)
             # 종가인지 스스로 남긴다.
-            r["data_date"] = str(data["close"].index[-1].date())
+            # [2026-09-29] screen()이 빈 행 제거 후의 실제 날짜로 채운다.
             # 시가총액: 종목별 호출이 필요해 통과+관찰 종목으로만 범위를 좁힌다.
             # (전체 500종목에 매번 걸면 몇 분씩 걸리고 차단 위험도 커진다)
             focus = r.index[(r["PASS"]) | (r["conditions_met"] >= 7)]

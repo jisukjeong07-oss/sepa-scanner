@@ -29,6 +29,41 @@ CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
 CACHE_PREFIX = os.path.join(CACHE_DIR, "us_prices")
 
 
+def _expected_last_session(now: dt.datetime = None) -> dt.date:
+    """
+    [2026-09-29] 지금 시점에 "이미 끝났어야 하는" 가장 최근 미국 정규장 날짜.
+    뉴욕 현지 시각 기준으로 계산한다 — GitHub Actions 러너는 UTC, 맥북은
+    KST라 dt.date.today()로는 날짜가 하루씩 어긋난다.
+    16:30(마감 30분 후) 전이면 전 영업일, 주말이면 금요일로 되돌린다.
+    미국 공휴일은 고려하지 않는다 — 공휴일엔 이 값이 실제보다 하루 늦어
+    '캐시가 오래됐다'로 판정될 수 있지만, 그 경우 한 번 더 받을 뿐 결과는 정확하다.
+    """
+    from zoneinfo import ZoneInfo
+    now = now or dt.datetime.now(ZoneInfo("America/New_York"))
+    d = now.date()
+    if now.weekday() >= 5 or now.time() < dt.time(16, 30):
+        d -= dt.timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= dt.timedelta(days=1)
+    return d
+
+
+def _last_row_complete(close: pd.DataFrame, value: pd.DataFrame,
+                       min_ratio: float = 0.5) -> bool:
+    """
+    [2026-09-29] 마지막 날짜 행이 제대로 채워져 있는지 확인한다.
+    실사례: 9/29 장전 실행 때 yfinance가 미국 9/28 행을 가격·거래량이
+    빈 미완성 봉으로 내려줬고, 그게 캐시에 저장돼 20시간 동안 재사용됐다.
+    종목 절반 이상의 가격 또는 거래대금이 비어 있으면 "불완전"으로 본다.
+    """
+    if close is None or close.empty or value is None or value.empty:
+        return False
+    last = close.index[-1]
+    c_ok = close.loc[last].notna().mean() >= min_ratio
+    v_ok = value.reindex(index=[last]).iloc[0].notna().mean() >= min_ratio
+    return bool(c_ok and v_ok)
+
+
 def fetch_us_cached(tickers, start: str = None, end: str = None,
                     period: str = "2y", max_age_hours: float = 20.0) -> dict:
     close_path = f"{CACHE_PREFIX}_close.parquet"
@@ -59,16 +94,39 @@ def fetch_us_cached(tickers, start: str = None, end: str = None,
                 if os.path.exists(high_path):
                     out["high"] = pd.read_parquet(high_path)
                     out["low"] = pd.read_parquet(low_path)
-                print(f"[US 캐시] 재사용 ({age_hours:.1f}시간 전 수집, "
-                      f"{len(out['close'].columns)}종목) — yfinance 재요청 생략")
-                return out
+                # [2026-09-29] 이 수정 이전에 저장된 캐시에는 빈 행이 들어
+                # 있을 수 있다. 마지막 행이 불완전하면 재사용하지 않고 새로 받는다.
+                last_date = out["close"].index[-1].date()
+                expected = _expected_last_session()
+                if not _last_row_complete(out["close"], out["value"]):
+                    print(f"[US 캐시] 마지막 날짜({last_date}) 행이 "
+                          f"비어 있는 미완성 캐시 → 무시하고 새로 받습니다")
+                # [2026-09-29] 캐시가 최신 장보다 오래됐고(예: 장 마감 직후라
+                # 9/28 봉이 빠진 채 9/25까지만 저장됨) 저장한 지 1시간이 넘었으면
+                # 새로 받는다. 1시간 이내면 같은 run_daily 실행 안의 중복 요청이라
+                # 재사용한다 — 이 캐시를 만든 원래 목적(yfinance sqlite 충돌 방지).
+                elif last_date < expected and age_hours >= 1.0:
+                    print(f"[US 캐시] 캐시 마지막 날짜 {last_date}가 최신 장({expected})보다 "
+                          f"오래됨 ({age_hours:.1f}시간 전 수집) → 새로 받습니다")
+                else:
+                    print(f"[US 캐시] 재사용 ({age_hours:.1f}시간 전 수집, "
+                          f"{len(out['close'].columns)}종목, "
+                          f"마지막 날짜 {last_date}) — yfinance 재요청 생략")
+                    return out
             except Exception as e:
                 print(f"[US 캐시] 읽기 실패, 새로 받습니다: {e}")
 
     from sepa_scanner import fetch_us
     out = fetch_us(tickers, start=start, end=end, period=period)
 
-    if cacheable and out.get("close") is not None and not out["close"].empty:
+    # [2026-09-29] 불완전한 결과는 캐시에 남기지 않는다. fetch_us()가 이미
+    # 빈 행을 걸러내므로 보통은 통과하지만, 이중 안전장치로 둔다 — 잘못된
+    # 캐시가 한 번 저장되면 20시간 동안 모든 재실행이 그걸 재사용하기 때문이다.
+    if cacheable and out.get("close") is not None and not out["close"].empty \
+            and not _last_row_complete(out["close"], out.get("value")):
+        print("[US 캐시] 마지막 날짜 행이 불완전해 캐시에 저장하지 않습니다 "
+              "(이번 실행 결과는 그대로 사용)")
+    elif cacheable and out.get("close") is not None and not out["close"].empty:
         try:
             os.makedirs(CACHE_DIR, exist_ok=True)
             out["close"].to_parquet(close_path)
