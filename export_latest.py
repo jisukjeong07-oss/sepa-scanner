@@ -45,8 +45,7 @@ FIELDS = {
     "price": "price", "RS": "rs", "conditions_met": "cond", "PASS": "pass",
     "vs_52w_high_%": "high52", "vs_MA50_%": "ma50dev", "vs_MA200_%": "ma200dev",
     "MA200_slope_%": "slope200", "dev_days": "devdays", "dev_trend": "devtrend",
-    "avg_turnover_20d": "turnover20d", "trade_value_today": "value_today",
-    "market_cap": "mcap", "turnover_ratio": "turn",
+    "avg_turnover_20d": "turnover20d", "turnover_ratio": "turn",
     "vcp_status": "vcp", "pivot_price": "pivot", "stop_price": "stop",
     "pct_from_pivot": "pivot_pct", "risk_pct": "risk",
     "contraction_count": "legs", "is_tightening": "tight", "vol_dryup": "dryup",
@@ -76,7 +75,10 @@ def _clean(v):
     if isinstance(v, (np.floating, float)):
         f = float(v)
         # vs_52w_low_% 에 inf 가 들어오는 사례가 실제로 있었다(금호전기)
-        return None if math.isnan(f) or math.isinf(f) else round(f, 4)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        # 1만 이상 금액은 소수점이 의미 없으므로 정수로, 나머지는 2자리
+        return int(round(f)) if abs(f) >= 10000 else round(f, 2)
     if isinstance(v, (pd.Timestamp, datetime)):
         return str(v)[:10]
     s = str(v)
@@ -130,10 +132,23 @@ def _prev_prices(path: str, new_data_date):
     except Exception:
         return {}
     rows = old.get("rows", [])
+    if isinstance(rows, dict):          # 표 형식 → 딕셔너리 목록으로 복원
+        cols = rows.get("cols", [])
+        rows = [dict(zip(cols, d)) for d in rows.get("data", [])]
     key = lambda r: f"{r.get('mkt')}:{r.get('tic')}"
     if old.get("data_date") and new_data_date and str(old["data_date"]) != str(new_data_date):
         return {key(r): r.get("price") for r in rows if r.get("tic")}
     return {key(r): r.get("prev_price") for r in rows if r.get("tic")}
+
+
+def _columnar(records):
+    """[{k:v}, ...] 를 {"cols":[...], "data":[[...]]} 로 바꾼다. 키 반복이 사라져 용량이 절반이 된다."""
+    cols = []
+    for r in records:
+        for k in r:
+            if k not in cols:
+                cols.append(k)
+    return {"cols": cols, "data": [[r.get(c) for c in cols] for r in records]}
 
 
 def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
@@ -150,6 +165,18 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
             df = df.merge(s2[cols], on="ticker", how="left", suffixes=("", "_s2"))
         except Exception as e:
             print(f"[export_latest] 2단계 병합 건너뜀: {e}")
+
+    # 미국 종목은 avg_turnover_20d 가 계산되지 않아(NaN) 스캐너의 PASS 가 항상
+    # False 로 나온다. PASS 에 한국 기준 "20일 평균 거래대금 50억 이상" 조건이
+    # 들어 있어서다. 대시보드는 8조건 충족을 "통과"로 표시하므로(9/23 미국 36개)
+    # 여기서도 같은 기준으로 맞춘다. 근본 수정은 sepa_scanner 에서 미국
+    # 거래대금을 채우는 것이며, 그때 이 보정은 자동으로 무의미해진다.
+    if {"market", "conditions_met", "PASS"} <= set(df.columns):
+        turnover = pd.to_numeric(df.get("avg_turnover_20d"), errors="coerce")
+        us8 = (df["market"].astype(str).eq("US")
+               & pd.to_numeric(df["conditions_met"], errors="coerce").eq(8)
+               & turnover.isna())
+        df.loc[us8, "PASS"] = True
 
     data_date = str(data_as_of) if data_as_of else _clean(
         df["data_date"].iloc[0]) if "data_date" in df.columns and len(df) else None
@@ -182,15 +209,17 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
         "summary": {
             "kr_pass": n(passed, "KR"), "kr_cond7": n(cond.eq(7), "KR"),
             "us_pass": n(passed, "US"), "us_cond7": n(cond.eq(7), "US"),
+            # PASS 컬럼과 대시보드 "통과" 표시가 어긋나는지 점검용(2026-09-23 us_pass=0 이슈)
+            "kr_cond8": n(cond.eq(8), "KR"), "us_cond8": n(cond.eq(8), "US"),
             "rows_exported": len(rows),
         },
         # developing = 관찰 중, confirmed = 이미 놓침. PDF 4개를 대체한다.
-        "watching": _jsonable((missed_patterns or {}).get("developing", [])),
-        "missed": _jsonable((missed_patterns or {}).get("confirmed", [])),
+        "watching": _columnar(_jsonable((missed_patterns or {}).get("developing", []))),
+        "missed": _columnar(_jsonable((missed_patterns or {}).get("confirmed", []))),
         "breadth": _jsonable(breadth or []),
         "macro": _jsonable(macro or []),
         "sector_status": _jsonable(sector_status or {}),
-        "rows": rows,
+        "rows": _columnar(rows),
     }
 
     os.makedirs(out_dir, exist_ok=True)
@@ -200,7 +229,7 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
     os.replace(tmp, out_path)   # 쓰다 실패해도 기존 파일이 깨지지 않게
 
     print(f"[export_latest] {out_path}  rows={len(rows)}  "
-          f"watching={len(payload['watching'])}  missed={len(payload['missed'])}  "
+          f"watching={len(payload['watching']['data'])}  missed={len(payload['missed']['data'])}  "
           f"{os.path.getsize(out_path)/1024:.0f}KB")
     return out_path
 
