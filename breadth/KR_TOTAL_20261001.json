@@ -1,0 +1,19 @@
+{
+  "tt8_count": 104,
+  "tt8_pct": 4.03,
+  "tt7_count": 148,
+  "trend_ex_rs_pct": 4.11,
+  "nh52": 58,
+  "nl52": 138,
+  "net_hl": -80,
+  "above200_pct": 23.02,
+  "above50_pct": 55.78,
+  "n_universe": 2741,
+  "n_valid": 2580,
+  "status": "live",
+  "hilo_basis": "intraday",
+  "market": "KR_TOTAL",
+  "data_date": "20261001",
+  "source": "live",
+  "generated_at": "2026-10-02T10:16:33"
+}
