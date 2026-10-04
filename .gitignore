@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 output/
 cache/kr_krx_daily_raw_backup.parquet
+
+# [2026-10-05] 미국 시세 임시 캐시 — 한 번 실행 안에서만 재사용하는 파일이라
+# 저장소에 올리지 않는다(올리면 다음 실행이 묵은 시세를 최신으로 착각함).
+cache/us_prices_*.parquet

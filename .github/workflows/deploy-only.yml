@@ -67,6 +67,11 @@ jobs:
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
           cp history/manifest.json site/ 2>/dev/null || true
+          # [2026-10-05] 통합 JSON(액션시트용 고정 주소)도 함께 담는다.
+          # Pages 는 배포 때마다 사이트 전체를 교체하므로, 여기서 빠지면
+          # 맥북에서 history/ 를 올릴 때마다 latest.json 이 사이트에서 사라져
+          # 다음 정기 실행 전까지 404가 된다.
+          cp history/latest.json site/ 2>/dev/null || true
 
           # Pages 는 사이트 전체를 교체한다. 여기서 PDF를 담지 않으면
           # 직전 배포에 올라가 있던 PDF가 전부 사라져 링크가 404가 된다.
