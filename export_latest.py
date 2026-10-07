@@ -52,6 +52,8 @@ FIELDS = {
     "vol_ratio": "volratio", "vol_ratio_label": "vollabel",
     "F_PASS": "f_pass", "SEPA12_PASS": "sepa12",
     "순이익증가율_YoY_%": "eps_yoy", "매출증가율_YoY_%": "rev_yoy", "이익가속": "accel",
+    # [2026-10-07] 종목별 실제 가격 날짜와 '전날 값으로 계산됨' 표시
+    "price_date": "pdate", "stale": "stale",
 }
 
 # object dtype 으로 읽히면 숫자가 문자열로 나가므로 강제 변환할 컬럼

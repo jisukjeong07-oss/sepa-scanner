@@ -437,23 +437,38 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
     else:
         kwargs = {"period": period}
 
-    closes, volumes, highs, lows = [], [], [], []
-    for i in range(0, len(tickers), 100):
-        batch = tickers[i:i + 100]
-        print(f"[US] {i+1}~{i+len(batch)} / {len(tickers)} 다운로드...")
-        df = yf.download(batch, auto_adjust=True,
-                         progress=False, group_by="column", threads=True, **kwargs)
-        if df is None or df.empty:
-            continue
-        closes.append(df["Close"])
-        volumes.append(df["Volume"])
-        if "High" in df.columns.get_level_values(0):
-            highs.append(df["High"])
-            lows.append(df["Low"])
-        time.sleep(1.0)
+    def _download(tick_list, label="다운로드"):
+        """tick_list를 100개씩 받아 (close, volume, high, low) 넓은 표로 돌려준다."""
+        closes, volumes, highs, lows = [], [], [], []
+        for i in range(0, len(tick_list), 100):
+            batch = tick_list[i:i + 100]
+            print(f"[US] {i+1}~{i+len(batch)} / {len(tick_list)} {label}...")
+            df = yf.download(batch, auto_adjust=True,
+                             progress=False, group_by="column", threads=True, **kwargs)
+            if df is None or df.empty:
+                continue
+            c, v = df["Close"], df["Volume"]
+            # 한 종목만 받으면 Series로 오므로 표로 맞춘다
+            if isinstance(c, pd.Series):
+                c, v = c.to_frame(batch[0]), v.to_frame(batch[0])
+            closes.append(c)
+            volumes.append(v)
+            if "High" in df.columns.get_level_values(0):
+                h, lo = df["High"], df["Low"]
+                if isinstance(h, pd.Series):
+                    h, lo = h.to_frame(batch[0]), lo.to_frame(batch[0])
+                highs.append(h)
+                lows.append(lo)
+            time.sleep(1.0)
+        if not closes:
+            return None
+        cat = lambda xs: pd.concat(xs, axis=1).sort_index() if xs else None
+        return cat(closes), cat(volumes), cat(highs), cat(lows)
 
-    close = pd.concat(closes, axis=1).sort_index()
-    volume = pd.concat(volumes, axis=1).sort_index()
+    got = _download(tickers)
+    if got is None:
+        raise RuntimeError("[US] 미국 가격을 한 종목도 받지 못했습니다.")
+    close, volume, high, low = got
 
     # [2026-10-05] 뉴욕 시각으로 아직 마감 안 된 날짜의 봉(장중 가격)은 버린다.
     # 장마감(PM) 예약이 GitHub 대기열 때문에 새벽 2~5시(KST)에 실행되는데,
@@ -469,6 +484,56 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
               f"{', '.join(str(d.date()) for d in close.index[late])} "
               f"(뉴욕 기준 마지막 확정 장: {last_done})")
         close, volume = close.loc[~late], volume.loc[~late]
+
+    # [2026-10-07] 마지막 확정 장의 가격이 비어 있는 종목만 다시 요청한다.
+    # 실사례(10/7 KST 아침): 미국 장 마감 후 4~5시간이 지났는데도 야후가 일부
+    # 종목의 10/6 봉을 비워서 내려줬다. 09:42 실행은 비어 있는 종목이 절반을
+    # 넘어 10/6 행이 통째로 빠졌고(미국 전 종목이 10/5 종가), 10:18 실행은
+    # 행은 남았지만 DDOG·ANET 등은 screen()의 ffill() 때문에 10/5 값이
+    # 표시 없이 들어갔다. 비어 있는 종목만 골라 최대 2번 더 받는다.
+    # 그래도 비면 전날 값으로 조용히 채우지 않고, screen()이 그 종목에
+    # stale=True(가격이 마지막 장보다 이전 날짜)를 붙이게 둔다.
+    import market_calendar as mc
+    target = last_done
+    if start and end:
+        target = min(target, dt.datetime.strptime(end, "%Y%m%d").date())
+    for _ in range(10):                       # 주말·미국 공휴일이면 직전 거래일로
+        if mc.is_us_trading_day(target):
+            break
+        target -= dt.timedelta(days=1)
+    t_ts = pd.Timestamp(target)
+    has_data = close.columns[close.notna().any()]          # 아예 데이터가 없는 종목은 제외
+
+    def _missing():
+        if t_ts not in close.index:
+            return list(has_data)
+        row_c, row_v = close.loc[t_ts, has_data], volume.loc[t_ts, has_data]
+        return list(has_data[(row_c.isna() | row_v.isna()).values])
+
+    missing = _missing()
+    n_first = len(missing)
+    for attempt, wait in enumerate((45, 90), start=1):
+        if not missing:
+            break
+        print(f"[US] {target} 가격이 비어 있는 종목 {len(missing)}개 → "
+              f"{wait}초 뒤 다시 요청 ({attempt}/2)")
+        time.sleep(wait)
+        again = _download(missing, label="재요청")
+        if again is None:
+            continue
+        c2, v2, h2, l2 = again
+        late2 = c2.index.normalize() > pd.Timestamp(last_done)
+        c2, v2 = c2.loc[~late2], v2.loc[~late2]
+        # combine_first: 기존 값이 있는 칸은 그대로 두고, 비어 있는 칸만 새 값으로 채운다.
+        close = close.combine_first(c2)
+        volume = volume.combine_first(v2)
+        if high is not None and h2 is not None:
+            high = high.combine_first(h2.loc[~late2])
+            low = low.combine_first(l2.loc[~late2])
+        missing = _missing()
+    if n_first:
+        print(f"[US] {target} 가격 비어 있던 종목: 처음 {n_first}개 → 재요청 후 {len(missing)}개"
+              + (f" ({', '.join(missing[:15])}{' …' if len(missing) > 15 else ''})" if missing else ""))
 
     # [2026-09-29] 미완성 봉(빈 날짜 행)을 여기서 먼저 걸러낸다.
     # 실사례: 9/29 장전(KST) 실행 때 미국 9/28 장 마감 직후라, yfinance가
@@ -489,9 +554,10 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
     # [2026-09-13] 52주 신고가/VCP 계산용 고가·저가. yfinance가 어차피
     # 같이 내려주는 값이라 추가 호출 비용이 없다.
     # [2026-09-29] 행(날짜)도 close에 맞춘다 — 위에서 빈 행을 뺐으므로.
-    if highs:
-        out["high"] = pd.concat(highs, axis=1).sort_index().reindex(index=close.index, columns=close.columns)
-        out["low"] = pd.concat(lows, axis=1).sort_index().reindex(index=close.index, columns=close.columns)
+    if high is not None:
+        out["high"] = high.sort_index().reindex(index=close.index, columns=close.columns)
+        out["low"] = low.sort_index().reindex(index=close.index, columns=close.columns)
+    out["stale_tickers"] = missing
     return out
 
 
@@ -626,6 +692,9 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     valid = close.notna().sum() >= 252
     close = close.loc[:, valid]
     value = value.loc[:, close.columns]
+    # [2026-10-07] ffill() 전에 종목별 "실제로 가격이 있는 마지막 날짜"를 기록한다.
+    # ffill()이 빈 칸을 전날 값으로 채우면 겉으로는 구분이 안 되기 때문이다.
+    last_valid = close.apply(lambda s_: s_.last_valid_index())
     close = close.ffill()
     if high is not None:
         high = high.loc[:, close.columns].ffill()
@@ -708,6 +777,15 @@ def screen(data: dict, market_tag: str, min_rs: int = MIN_RS,
     # run()은 이 값을 그대로 쓴다(예전처럼 원본 마지막 날짜로 덮어쓰면
     # "9/28 기준"이라고 적혀 있는데 실제 가격은 9/25인 상황이 다시 생긴다).
     result["data_date"] = str(close.index[-1].date())
+    # [2026-10-07] 종목별 실제 가격 날짜와, 그게 data_date보다 이전인지(stale).
+    # stale=True면 그 종목은 마지막 장의 가격을 못 받아 전날 값으로 계산된 것이다.
+    pdates = last_valid.reindex(result.index)
+    result["price_date"] = [str(d.date()) if pd.notna(d) else None for d in pdates]
+    result["stale"] = [bool(pd.notna(d) and d < close.index[-1]) for d in pdates]
+    n_stale = int(result["stale"].sum())
+    if n_stale:
+        print(f"[{market_tag}] 마지막 장({close.index[-1].date()}) 가격이 없어 전날 값으로 계산된 종목 "
+              f"{n_stale}개 — CSV의 stale 컬럼에 표시")
 
     # [2026-09-15] 회전율용 원값. 시가총액(market_cap)은 run()에서 나중에
     # 붙으므로, 실제 비율(turnover_ratio) 계산은 add_turnover_ratio()가 담당한다.
