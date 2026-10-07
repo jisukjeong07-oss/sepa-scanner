@@ -81,7 +81,14 @@ def fetch_us_cached(tickers, start: str = None, end: str = None,
     # end만 특정 과거 날짜(소급 스캔 등)면 오늘 캐시와 성격이 다르므로
     # 여전히 캐시 대상에서 제외한다.
     today_str = dt.date.today().strftime("%Y%m%d")
-    cacheable = (end is None) or (end == today_str)
+    # [2026-10-05] 장전(--data-date 전일)·장마감(--date 예약일) 실행은 end가
+    # '오늘'이 아니라서 예전 조건으로는 캐시 대상이 아니었고, 그래서 한 번
+    # 실행에서 미국 500종목을 두 번(메인 스캔·놓친 패턴) 받고 있었다.
+    # end가 "뉴욕 기준 마지막 확정 장" 이후면, fetch_us가 그 장까지만 돌려주므로
+    # 오늘 기준 조회와 결과가 같다 → 캐시 대상으로 본다. 과거 날짜 소급
+    # 조회(end가 그보다 이전)는 여전히 캐시하지 않는다.
+    cacheable = (end is None) or (end >= today_str) or \
+        (end >= _expected_last_session().strftime("%Y%m%d"))
 
     if cacheable and os.path.exists(close_path):
         age_hours = (time.time() - os.path.getmtime(close_path)) / 3600

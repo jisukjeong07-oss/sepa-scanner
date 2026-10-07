@@ -455,6 +455,21 @@ def fetch_us(tickers: list, start: str = None, end: str = None, period: str = "2
     close = pd.concat(closes, axis=1).sort_index()
     volume = pd.concat(volumes, axis=1).sort_index()
 
+    # [2026-10-05] 뉴욕 시각으로 아직 마감 안 된 날짜의 봉(장중 가격)은 버린다.
+    # 장마감(PM) 예약이 GitHub 대기열 때문에 새벽 2~5시(KST)에 실행되는데,
+    # 그 시각은 미국 장중이라 yfinance가 '오늘 봉'을 현재가로 채워 내려준다.
+    # 아래의 빈 행 제거는 '값이 비어 있는 봉'만 걸러서 이건 못 막았다.
+    # 여기서 자르면 스캔·시장 폭·놓친 패턴(모두 이 함수를 거침)이 함께 막힌다.
+    # 과거 날짜 소급 조회(end가 과거)는 이미 그 이전 봉만 있으므로 영향 없다.
+    from us_data_cache import _expected_last_session
+    last_done = _expected_last_session()
+    late = close.index.normalize() > pd.Timestamp(last_done)
+    if late.any():
+        print(f"[US] 아직 마감 안 된 날짜 봉 제외: "
+              f"{', '.join(str(d.date()) for d in close.index[late])} "
+              f"(뉴욕 기준 마지막 확정 장: {last_done})")
+        close, volume = close.loc[~late], volume.loc[~late]
+
     # [2026-09-29] 미완성 봉(빈 날짜 행)을 여기서 먼저 걸러낸다.
     # 실사례: 9/29 장전(KST) 실행 때 미국 9/28 장 마감 직후라, yfinance가
     # 9/28 행을 가격·거래량이 빈 채로 내려줬다. 이 행이 그대로 반환되면
