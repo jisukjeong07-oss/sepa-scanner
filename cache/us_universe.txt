@@ -119,7 +119,6 @@ CSGP	CoStar Group
 CSX	CSX Corporation
 CTAS	Cintas
 CTSH	Cognizant
-CTVA	Corteva
 CVNA	Carvana
 CVS	CVS Health
 CVX	Chevron Corporation
@@ -377,7 +376,6 @@ PPG	PPG Industries
 PPL	PPL Corporation
 PRU	Prudential Financial
 PSA	Public Storage
-PSKY	Paramount Skydance Corporation
 PSX	Phillips 66
 PTC	PTC Inc.
 PWR	Quanta Services
@@ -404,6 +402,7 @@ SBUX	Starbucks
 SCHW	Charles Schwab Corporation
 SHW	Sherwin-Williams
 SJM	J.M. Smucker Company (The)
+SKYD	Paramount Skydance Corporation
 SLB	Schlumberger
 SMCI	Supermicro
 SNA	Snap-on
@@ -448,6 +447,7 @@ TSLA	Tesla, Inc.
 TSN	Tyson Foods
 TT	Trane Technologies
 TTWO	Take-Two Interactive
+TWLO	Twilio
 TXN	Texas Instruments
 TXT	Textron
 TYL	Tyler Technologies
@@ -475,10 +475,10 @@ VRTX	Vertex Pharmaceuticals
 VST	Vistra Corp.
 VTR	Ventas
 VTRS	Viatris
+VYLR	Vylor
 VZ	Verizon
 WAB	Wabtec
 WAT	Waters Corporation
-WBD	Warner Bros. Discovery
 WDAY	Workday, Inc.
 WDC	Western Digital
 WEC	WEC Energy Group
