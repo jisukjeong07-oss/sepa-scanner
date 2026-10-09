@@ -1,0 +1,19 @@
+{
+  "tt8_count": 68,
+  "tt8_pct": 13.63,
+  "tt7_count": 57,
+  "trend_ex_rs_pct": 14.23,
+  "nh52": 5,
+  "nl52": 12,
+  "net_hl": -7,
+  "above200_pct": 50.3,
+  "above50_pct": 33.47,
+  "n_universe": 503,
+  "n_valid": 499,
+  "status": "live",
+  "hilo_basis": "intraday",
+  "market": "SP500",
+  "data_date": "20261008",
+  "source": "live",
+  "generated_at": "2026-10-09T10:49:36"
+}

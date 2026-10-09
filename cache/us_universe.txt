@@ -402,7 +402,7 @@ SBUX	Starbucks
 SCHW	Charles Schwab Corporation
 SHW	Sherwin-Williams
 SJM	J.M. Smucker Company (The)
-SKYD	Paramount Skydance Corporation
+SKYD	Skydance Corporation
 SLB	Schlumberger
 SMCI	Supermicro
 SNA	Snap-on
