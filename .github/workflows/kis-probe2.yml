@@ -1,0 +1,75 @@
+name: KIS Probe 2 (측정용)
+
+# 10/12(월)~10/13(화) 측정 전용. 측정이 끝나면 이 파일을 지운다(매주 반복 예약이라).
+on:
+  schedule:
+    - cron: '7 13 * * 1'        # 월 13:07 KST → 한국 측정 (15:25까지 기다렸다 기록)
+      timezone: "Asia/Seoul"
+    - cron: '37 3 * * 2'        # 화 03:37 KST → 미국 측정 (04:50부터 기록)
+      timezone: "Asia/Seoul"
+    - cron: '17 14 * * 2'       # 화 14:17 KST → 미국 최종값 대조
+      timezone: "Asia/Seoul"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '측정 종류'
+        required: true
+        default: 'kr'
+        type: choice
+        options: [kr, us, usverify]
+
+permissions:
+  contents: write
+
+# 스캐너(daily.yml, group: pages)와 다른 그룹 — 몇 시간씩 대기하는 작업이 스캔을 막지 않게.
+concurrency:
+  group: kis-probe
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install pandas pyarrow requests yfinance
+
+      - name: Pick mode
+        id: m
+        run: |
+          case "${{ github.event.schedule }}" in
+            "7 13 * * 1")  echo "mode=kr" >> "$GITHUB_OUTPUT" ;;
+            "37 3 * * 2")  echo "mode=us" >> "$GITHUB_OUTPUT" ;;
+            "17 14 * * 2") echo "mode=usverify" >> "$GITHUB_OUTPUT" ;;
+            *)             echo "mode=${{ github.event.inputs.mode || 'kr' }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Run probe
+        env:
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+        run: python kis_probe2.py --mode ${{ steps.m.outputs.mode }} --schedule "${{ github.event.schedule }}"
+
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add probe/
+          if git diff --cached --quiet; then
+            echo "새 결과 없음"
+            exit 0
+          fi
+          git commit -m "KIS 측정 결과 ${{ steps.m.outputs.mode }} $(date +%Y%m%d_%H%M)"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            sleep 10
+          done
