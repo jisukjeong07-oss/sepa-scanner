@@ -269,6 +269,7 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
             breadth=breadth_snapshot,
             macro=macro_snapshot,
             sector_status=sector_status,
+            kr_today=getattr(sepa_scanner, "LAST_KR_TODAY_STATUS", None),
         )
     except Exception as e:
         print(f"[경고] latest.json 내보내기 건너뜀(다른 산출물엔 영향 없음): {e}")

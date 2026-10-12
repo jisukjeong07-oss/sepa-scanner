@@ -2,8 +2,15 @@ name: SEPA Daily Scan
 
 on:
   schedule:
-    - cron: '0 22 * * 0-4'    # KST 07:00 (한국 장 시작 전) — UTC 일~목 22:00
-    - cron: '0 13 * * 1-5'    # KST 22:00 (애프터마켓 20:00 마감 후 여유를 둠) — UTC 월~금 13:00
+    # [2026-10-12] 하루 1회(한국 장마감) 로 개편. 07:00·22:00 예약은 폐지.
+    # - 16:17 KST: KIS로 "오늘" 한국 정규장 종가(15:30 봉)를 받아 전체 스캔.
+    #   16:00~20:00 KRX 애프터마켓 가격이 섞이지 않도록 kis_kr_today.py가
+    #   16:15 이후에만 15:30 봉을 쓴다(10/12 측정으로 확인). 미국은 이 시각에
+    #   야후 전일 종가가 이미 다 채워져 있다.
+    # - 정각(00분)은 GitHub Actions 예약이 가장 몰려 몇 시간씩 늦어지므로 피한다.
+    # - 미국 장마감(KST 05:00/06:00) 실행은 10/13 측정 결과를 보고 추가 예정.
+    - cron: '17 16 * * 1-5'
+      timezone: "Asia/Seoul"
   workflow_dispatch:
     inputs:
       session:
@@ -28,6 +35,8 @@ env:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    outputs:
+      skipped: ${{ steps.skip.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,13 +62,43 @@ jobs:
       - name: Determine session
         id: session
         run: |
-          if [ "${{ github.event.schedule }}" = "0 22 * * 0-4" ]; then
-            echo "value=AM" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 13 * * 1-5" ]; then
+          if [ "${{ github.event.schedule }}" = "17 16 * * 1-5" ]; then
             echo "value=PM" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.event.inputs.session || 'MANUAL' }}" >> "$GITHUB_OUTPUT"
           fi
+
+      # ──────────────────────────────────────────────────────────────
+      # [2026-10-12] 같은 날 같은 세션이 이미 성공했으면 예약 실행은 건너뛴다.
+      # 수동 실행(workflow_dispatch)과 예약이 겹치면 예약분이 뒤늦게 돌아
+      # 같은 결과를 두 번 만들던 것을 막는다. 수동 실행은 항상 돈다.
+      # run_log.jsonl 은 run_daily.py가 성공·실패를 한 줄씩 남기는 파일이다.
+      # ──────────────────────────────────────────────────────────────
+      - name: Skip if already done today
+        id: skip
+        run: |
+          SKIP=false
+          if [ "${{ github.event_name }}" = "schedule" ] && [ -f run_log.jsonl ]; then
+            TODAY=$(date +%Y%m%d)
+            if python - "$TODAY" "${{ steps.session.outputs.value }}" <<'PY'
+          import json, sys
+          today, session = sys.argv[1], sys.argv[2]
+          hit = False
+          for line in open("run_log.jsonl", encoding="utf-8"):
+              try:
+                  d = json.loads(line)
+              except Exception:
+                  continue
+              if d.get("stamp") == today and d.get("session") == session and d.get("status") == "success":
+                  hit = True
+          sys.exit(0 if hit else 1)
+          PY
+            then
+              SKIP=true
+              echo "::notice::오늘(${TODAY}) ${{ steps.session.outputs.value }} 세션은 이미 성공한 실행이 있어 건너뜁니다."
+            fi
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
 
       # ──────────────────────────────────────────────────────────────
       # 실행 지연 감지
@@ -69,12 +108,13 @@ jobs:
       # ──────────────────────────────────────────────────────────────
       - name: Check start time (KST)
         id: starttime
+        if: steps.skip.outputs.skip != 'true'
         run: |
           echo "start_epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
           echo "=============================================="
           echo " 세션        : ${{ steps.session.outputs.value }}"
           echo " 시작 시각   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo " 예정 시각   : AM 07:00 / PM 22:00 (KST)"
+          echo " 예정 시각   : PM 16:17 (KST) — 한국 장마감 후, KIS 당일 종가 반영"
           echo "=============================================="
           HHMM=$(date +%H%M)
           if [ "${{ steps.session.outputs.value }}" = "AM" ] && [ "$HHMM" -ge "0850" ]; then
@@ -90,6 +130,7 @@ jobs:
       # 작동한다. 이 스텝이 없으면 그 방어선은 매번 무력화된다.
       # ──────────────────────────────────────────────────────────────
       - name: Restore listing cache
+        if: steps.skip.outputs.skip != 'true'
         run: |
           mkdir -p cache
           if ls cache/kr_listing.* >/dev/null 2>&1; then
@@ -110,9 +151,12 @@ jobs:
       # 결과가 동일하다. 시각에 의존하는 구조를 없애는 것이 핵심이다.
       # 파일명·표지 날짜는 오늘 그대로 유지된다(--date 가 아니라 --data-date).
       - name: Run scan
+        if: steps.skip.outputs.skip != 'true'
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
@@ -128,6 +172,7 @@ jobs:
       # 스캔이 09:00을 넘겨 끝났으면 뒤쪽 종목에 장중 시세가 섞인다.
       # 전 종목이 아니라 "조회 순서상 뒤쪽 종목만" 오염되므로 눈에 잘 안 띈다.
       - name: Check finish time (KST)
+        if: steps.skip.outputs.skip != 'true'
         run: |
           ELAPSED=$(( $(date +%s) - ${{ steps.starttime.outputs.start_epoch }} ))
           echo "=============================================="
@@ -163,6 +208,7 @@ jobs:
       # 넘어갔다. 원인을 특정하기 위해 진단 출력을 남기고 에러를
       # 숨기지 않도록 고친다.
       - name: Commit history and listing cache
+        if: steps.skip.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -201,6 +247,7 @@ jobs:
 
           for f in cache/kr_listing.parquet cache/kr_listing.pkl \
                    cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl \
+                   cache/kr_kis_today.parquet \
                    cache/us_universe.txt \
                    cache/kr_sector_map.json cache/us_sector_map.json \
                    cache/corp_map.json; do
@@ -258,9 +305,11 @@ jobs:
           git pull --rebase origin main
 
       - name: Regenerate manifest (최종 상태 기준)
+        if: steps.skip.outputs.skip != 'true'
         run: python regen_manifest.py
 
       - name: Push
+        if: steps.skip.outputs.skip != 'true'
         run: |
           # manifest.json 뿐 아니라 history/ 전체를 담는다.
           # 매니페스트 재생성 과정에서 NFD(맥에서 만든 깨진 한글 파일명)를
@@ -274,6 +323,7 @@ jobs:
           git push
 
       - name: Build site
+        if: steps.skip.outputs.skip != 'true'
         run: |
           mkdir -p site
           cp history/SEPA대시보드_*.html site/ 2>/dev/null || true
@@ -307,11 +357,13 @@ jobs:
           echo "=============================================="
 
       - uses: actions/upload-pages-artifact@v3
+        if: steps.skip.outputs.skip != 'true'
         with:
           path: site
 
   deploy:
     needs: scan
+    if: needs.scan.outputs.skipped != 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

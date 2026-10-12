@@ -68,6 +68,9 @@ MIN_RS = 70                  # 트렌드템플릿 8번 조건: RS Rating 하한 
 # run() 호출 뒤 sepa_scanner.LAST_SECTOR_STATUS["KR"]/["US"]로 읽어가서
 # 대시보드 탭에 시장별로 정확한 상태를 보여준다.
 LAST_SECTOR_STATUS = {"KR": {"status": "ok"}, "US": {"status": "ok"}}
+# [2026-10-12] 한국 "오늘 봉"을 KIS로 덧붙였는지 상태. run_daily.py가 읽어
+# latest.json의 kr_today 로 내보낸다. (LAST_SECTOR_STATUS와 같은 방식)
+LAST_KR_TODAY_STATUS = {"status": "skipped", "source": "KRX", "reason": "실행 안 함"}
 NEAR_HIGH_PCT = 25.0         # 조건7: 52주 신고가 대비 -25% 이내
 ABOVE_LOW_PCT = 30.0         # 조건6: 52주 신저가 대비 +30% 이상
 MA200_SLOPE_DAYS = 21        # 조건3: 200일선이 최소 1개월(≈21영업일) 상승
@@ -901,6 +904,23 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
                         data["close"] = data["close"].drop(columns=suspects)
                         data["value"] = data["value"].drop(columns=suspects)
                         data["meta"] = data["meta"].drop(index=suspects, errors="ignore")
+
+                    # [2026-10-12] 장마감 실행이면 KIS로 "오늘" 정규장 봉을 덧붙인다.
+                    # KRX Open API는 오늘 시세를 내일 아침에야 주기 때문이다.
+                    # 거래일·시각(16:15 이후, 15:30 봉 확정 뒤)·캐시 날짜를
+                    # kis_kr_today.apply()가 스스로 판단하고, 조건이 안 맞으면
+                    # 아무것도 하지 않는다. 과거 시점 소급 스캔(as_of)에선 끈다.
+                    # 실패해도 어제 종가로 스캔은 계속되고 상태만 남긴다.
+                    if not as_of:
+                        try:
+                            import kis_kr_today
+                            data, kr_today_status = kis_kr_today.apply(data)
+                        except Exception as e:
+                            kr_today_status = {"status": "failed", "source": "KRX",
+                                               "reason": f"kis_kr_today 오류: {str(e)[:150]}"}
+                            print(f"[KIS] 오늘 봉 덧붙이기 실패(어제 종가로 계속): {str(e)[:150]}")
+                        LAST_KR_TODAY_STATUS.clear()
+                        LAST_KR_TODAY_STATUS.update(kr_today_status)
                 except Exception as e:
                     print(f"[KR] KRX Open API 고속 경로 실패({str(e)[:150]}) "
                           f"→ 기존 FDR 방식(종목별 조회)으로 폴백합니다.")

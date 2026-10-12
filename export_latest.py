@@ -155,7 +155,7 @@ def _columnar(records):
 
 def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
                  data_as_of=None, missed_patterns=None, breadth=None, macro=None,
-                 sector_status=None):
+                 sector_status=None, kr_today=None):
     """스캔 CSV + 부가 스냅샷을 latest.json 한 파일로 저장하고 경로를 돌려준다."""
     df = _normalize_ticker(pd.read_csv(csv_path, dtype={"Unnamed: 0": str}))
 
@@ -221,6 +221,9 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
         "breadth": _jsonable(breadth or []),
         "macro": _jsonable(macro or []),
         "sector_status": _jsonable(sector_status or {}),
+        # [2026-10-12] 한국 당일 봉 출처. source="KIS"면 한국 종목의 price·pdate가
+        # 오늘(KIS 15:30 봉) 기준, "KRX"면 KRX Open API의 전 영업일 종가 기준.
+        "kr_today": _jsonable(kr_today or {}),
         "rows": _columnar(rows),
     }
 

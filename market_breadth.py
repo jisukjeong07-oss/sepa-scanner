@@ -65,6 +65,18 @@ def _load_kr_data(as_of: dt.date) -> dict:
     end = as_of.strftime("%Y%m%d")
     data = fetch_kr_krx_open(start, end)
 
+    # [2026-10-12] 스캐너가 이번 실행에서 KIS로 받아 둔 "오늘" 봉이 있으면
+    # 시장 폭에도 같은 날짜까지 반영한다(없으면 어제까지 — 기존과 동일).
+    # 여기서는 새로 조회하지 않고 캐시 파일만 쓴다.
+    try:
+        import kis_kr_today
+        today_df = kis_kr_today.load_today_cache(as_of)
+        if today_df is not None and len(today_df):
+            data = kis_kr_today.attach_today(data, today_df)
+            print(f"[KR breadth] KIS 오늘 봉 {len(today_df)}종목 반영 ({as_of})")
+    except Exception as e:
+        print(f"[KR breadth] KIS 오늘 봉 반영 건너뜀: {str(e)[:100]}")
+
     suspects = [t for t in data.get("delisting_suspects", []) if t in data["close"].columns]
     if suspects:
         data["close"] = data["close"].drop(columns=suspects)
