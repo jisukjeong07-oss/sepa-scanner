@@ -148,6 +148,10 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # 기존 기록과 충돌하지 않는다. 두 이름이 다를 때 오늘 이름으로 복사해
     # 이후 단계가 전부 stamp 를 따르게 맞춘다.
     scan_stamp = as_of or stamp
+    # [2026-10-13] 미국 장마감(US) 세션은 KST 새벽에 돌아 파일 날짜(stamp)는 오늘이지만,
+    # 데이터는 한국 전날(KIS 캐시)·미국 전날(뉴욕 날짜) 종가다. 기준일 표기를 하루 당긴다.
+    if session == "US" and not as_of:
+        scan_stamp = (dt.datetime.strptime(stamp, "%Y%m%d") - dt.timedelta(days=1)).strftime("%Y%m%d")
     src_csv = os.path.join(OUT_DIR, f"sepa_scan_{scan_stamp}.csv")
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{stamp}.csv")
     if os.path.abspath(src_csv) != os.path.abspath(csv_path):
@@ -227,7 +231,7 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # import 자체가 실패하는 경우(예: requests 미설치)까지 방어한다.
     try:
         from send_telegram import send_pdf_report, send_focus_csv
-        session_label = {"AM": "장전", "PM": "장마감"}.get(session, session)
+        session_label = {"AM": "장전", "PM": "장마감", "US": "미국마감"}.get(session, session)
         send_pdf_report(pdf_path, f"SEPA 스캔 · {stamp} {session_label}")
         send_focus_csv(csv_path,
                         f"SEPA 통과+관찰 종목 (원본 데이터) · {stamp} {session_label}")
@@ -270,6 +274,7 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
             macro=macro_snapshot,
             sector_status=sector_status,
             kr_today=getattr(sepa_scanner, "LAST_KR_TODAY_STATUS", None),
+            us_today=getattr(sepa_scanner, "LAST_US_TODAY_STATUS", None),
         )
     except Exception as e:
         print(f"[경고] latest.json 내보내기 건너뜀(다른 산출물엔 영향 없음): {e}")
@@ -301,8 +306,8 @@ if __name__ == "__main__":
     ap.add_argument("--min-rs", type=int, default=70)
     ap.add_argument("--kr-source", default="fdr", choices=["fdr", "pykrx"])
     ap.add_argument("--no-open", action="store_true", help="브라우저 자동 실행 안 함")
-    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL", "HIST"],
-                    help="AM=장전, PM=장마감, MANUAL=수동 조회, HIST=소급조회 (기본 MANUAL)")
+    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "US", "MANUAL", "HIST"],
+                    help="AM=장전, PM=장마감, US=미국 장마감(KST 새벽), MANUAL=수동 조회, HIST=소급조회 (기본 MANUAL)")
     ap.add_argument("--date", default=None,
                     help="YYYYMMDD. 과거 특정 날짜를 소급 스캔(백필). "
                          "파일명·표지·데이터가 모두 그 날짜가 된다. 생략 시 오늘.")

@@ -71,6 +71,8 @@ LAST_SECTOR_STATUS = {"KR": {"status": "ok"}, "US": {"status": "ok"}}
 # [2026-10-12] 한국 "오늘 봉"을 KIS로 덧붙였는지 상태. run_daily.py가 읽어
 # latest.json의 kr_today 로 내보낸다. (LAST_SECTOR_STATUS와 같은 방식)
 LAST_KR_TODAY_STATUS = {"status": "skipped", "source": "KRX", "reason": "실행 안 함"}
+# [2026-10-13] 미국 "오늘 봉"(방금 끝난 정규장)을 KIS로 덧붙였는지 상태. 같은 방식.
+LAST_US_TODAY_STATUS = {"status": "skipped", "source": "yahoo", "reason": "실행 안 함"}
 NEAR_HIGH_PCT = 25.0         # 조건7: 52주 신고가 대비 -25% 이내
 ABOVE_LOW_PCT = 30.0         # 조건6: 52주 신저가 대비 +30% 이상
 MA200_SLOPE_DAYS = 21        # 조건3: 200일선이 최소 1개월(≈21영업일) 상승
@@ -1000,6 +1002,21 @@ def run(market: str, min_rs: int, kr_source: str = "fdr", as_of: str = None,
             tickers = us_universe()
             from us_data_cache import fetch_us_cached
             data = fetch_us_cached(tickers, start=start, end=end)
+            # [2026-10-13] 미국 장마감 직후 실행(US 세션)이면 KIS로 방금 끝난
+            # 정규장 봉을 덧붙인다. 야후는 KST 오전 10~11시에야 그 봉을 준다.
+            # 뉴욕 시간 16:15 이후 + 미국 거래일 + 야후 마지막 날짜가 그 전일 때만
+            # 동작하고, 아니면 아무것도 하지 않는다(장마감 PM 세션에서는 자동 skip).
+            # 소급 스캔(as_of)에선 끈다. 실패해도 전날 종가로 계속.
+            if not as_of:
+                try:
+                    import kis_us_today
+                    data, us_today_status = kis_us_today.apply(data)
+                except Exception as e:
+                    us_today_status = {"status": "failed", "source": "yahoo",
+                                       "reason": f"kis_us_today 오류: {str(e)[:150]}"}
+                    print(f"[KIS US] 오늘 봉 덧붙이기 실패(전날 종가로 계속): {str(e)[:150]}")
+                LAST_US_TODAY_STATUS.clear()
+                LAST_US_TODAY_STATUS.update(us_today_status)
             r = screen(data, "US", min_rs, min_turnover_us,
                        dev_threshold=dev_threshold, dev_lookback=dev_lookback)
             r.insert(0, "name", pd.Series(us_names(r.index)))

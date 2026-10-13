@@ -212,7 +212,7 @@ def _esc_html(s: str) -> str:
     return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
-_SESSION_LABEL_KO = {"AM": "장전", "PM": "장마감", "MANUAL": "수동", "HIST": "소급"}
+_SESSION_LABEL_KO = {"AM": "장전", "PM": "장마감", "US": "미국마감", "MANUAL": "수동", "HIST": "소급"}
 
 
 def _render_run_log(path: str, max_rows: int = 50) -> str:
@@ -887,6 +887,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       </div>
       <div class="seg" id="sessSeg" role="group" aria-label="세션">
         <button data-sess="AM" aria-pressed="false">장전</button>
+        <button data-sess="US" aria-pressed="false">미국마감</button>
         <button data-sess="PM" aria-pressed="false">장마감</button>
       </div>
       <a id="manualRun" class="btn btn-outline" href="__ACTIONS_URL__" target="_blank" rel="noopener">수동 조회</a>
@@ -2615,7 +2616,7 @@ document.getElementById("excelBtn").addEventListener("click", exportExcel);
     }
     // 같은 세션(장전/장마감)이 그 날짜에도 있으면 유지, 없으면 있는 쪽으로
     if(goto(key, curSess)) return;
-    const fallback = has.has("PM") ? "PM" : (has.has("AM") ? "AM" : [...has][0]);
+    const fallback = has.has("PM") ? "PM" : (has.has("US") ? "US" : (has.has("AM") ? "AM" : [...has][0]));
     goto(key, fallback);
   });
 
@@ -2748,7 +2749,7 @@ def _day_list(out_dir: str, current_file: str) -> list:
     seen = set()
 
     def _entry(fname):
-        m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL|HIST))?\.html$", fname)
+        m = re.search(r"(\d{8})(?:_(AM|PM|US|MANUAL|HIST))?\.html$", fname)
         if not m:
             return None
         key, session = m.group(1), (m.group(2) or "MANUAL")
@@ -2756,7 +2757,7 @@ def _day_list(out_dir: str, current_file: str) -> list:
             base_label = dt.datetime.strptime(key, "%Y%m%d").strftime("%Y-%m-%d (%a)")
         except ValueError:
             base_label = key
-        sess_label = {"AM": "장전", "PM": "장마감", "MANUAL": "수동", "HIST": "소급"}[session]
+        sess_label = _SESSION_LABEL_KO.get(session, session)
         return {"file": fname, "key": key, "session": session,
                "label": f"{base_label} · {sess_label}"}
 
@@ -2792,7 +2793,7 @@ def _day_list(out_dir: str, current_file: str) -> list:
             days.append(e)
 
     # 최신이 위로: 날짜 내림차순, 같은 날짜면 장마감(PM)이 장전(AM)보다 위
-    rank = {"PM": 2, "MANUAL": 1, "AM": 0}
+    rank = {"PM": 3, "US": 2, "MANUAL": 1, "AM": 0}   # [2026-10-13] 같은 날짜: 장마감 > 미국마감(새벽) > 수동 > 장전
     days.sort(key=lambda d: (d["key"], rank.get(d["session"], 0)), reverse=True)
     return days
 

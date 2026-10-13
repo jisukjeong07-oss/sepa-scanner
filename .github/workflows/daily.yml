@@ -8,17 +8,22 @@ on:
     #   16:15 이후에만 15:30 봉을 쓴다(10/12 측정으로 확인). 미국은 이 시각에
     #   야후 전일 종가가 이미 다 채워져 있다.
     # - 정각(00분)은 GitHub Actions 예약이 가장 몰려 몇 시간씩 늦어지므로 피한다.
-    # - 미국 장마감(KST 05:00/06:00) 실행은 10/13 측정 결과를 보고 추가 예정.
+    # - [2026-10-13] 실측: 정각을 피해도 예약이 6~8시간 늦게 돌았다(13:07→20:51,
+    #   03:37→09:56). 그래서 정시 실행은 cron-job.org가 workflow_dispatch로 호출한다
+    #   (한국 16:16 KST session=PM, 미국 뉴욕 16:17 session=US). 아래 예약은 외부
+    #   호출이 실패했을 때의 백업이며, 같은 날 같은 세션이 이미 성공했으면 건너뛴다.
     - cron: '17 16 * * 1-5'
       timezone: "Asia/Seoul"
+    - cron: '27 16 * * 1-5'
+      timezone: "America/New_York"
   workflow_dispatch:
     inputs:
       session:
-        description: '세션 구분 (수동 실행 시 표시될 이름)'
+        description: '세션 구분 (PM=한국 장마감, US=미국 장마감 KST 새벽 — cron-job.org가 이 값으로 호출)'
         required: false
         default: 'MANUAL'
         type: choice
-        options: [AM, PM, MANUAL]
+        options: [AM, PM, US, MANUAL]
 
 permissions:
   contents: write
@@ -64,6 +69,8 @@ jobs:
         run: |
           if [ "${{ github.event.schedule }}" = "17 16 * * 1-5" ]; then
             echo "value=PM" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "27 16 * * 1-5" ]; then
+            echo "value=US" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.event.inputs.session || 'MANUAL' }}" >> "$GITHUB_OUTPUT"
           fi
@@ -114,7 +121,7 @@ jobs:
           echo "=============================================="
           echo " 세션        : ${{ steps.session.outputs.value }}"
           echo " 시작 시각   : $(date '+%Y-%m-%d %H:%M:%S %Z')"
-          echo " 예정 시각   : PM 16:17 (KST) — 한국 장마감 후, KIS 당일 종가 반영"
+          echo " 예정 시각   : PM 16:16 KST(한국 장마감, KIS 당일 종가) / US 뉴욕 16:17(미국 장마감, KIS 당일 종가)"
           echo "=============================================="
           HHMM=$(date +%H%M)
           if [ "${{ steps.session.outputs.value }}" = "AM" ] && [ "$HHMM" -ge "0850" ]; then
@@ -248,6 +255,7 @@ jobs:
           for f in cache/kr_listing.parquet cache/kr_listing.pkl \
                    cache/kr_krx_daily.parquet cache/kr_krx_daily.pkl \
                    cache/kr_kis_today.parquet \
+                   cache/us_kis_today.parquet cache/us_excd_map.json \
                    cache/us_universe.txt \
                    cache/kr_sector_map.json cache/us_sector_map.json \
                    cache/corp_map.json; do
@@ -340,7 +348,11 @@ jobs:
           # 방금 시각으로 새로 찍혀 원래 생성 순서를 잃는다.
           # 파일명이 SEPA대시보드_YYYYMMDD_AM|PM.html 형식이므로
           # 이름순 정렬이 곧 시간순이다. (같은 날은 AM < PM 으로 순서도 맞음)
-          latest=$(ls history/SEPA대시보드_*.html | sort | tail -1)
+          # [2026-10-13] 이름순(AM<PM<US)으로 고르면 같은 날 US(새벽) 파일이 PM(오후)보다
+          # 뒤로 정렬돼 저녁 실행 뒤에도 새벽 결과가 index가 된다. checkout 직후엔 모든
+          # 파일의 mtime이 같고 이번 실행이 만든 파일만 더 새로우므로, mtime이 가장 최근인
+          # 파일 = 이번 실행 결과다.
+          latest=$(ls -t history/SEPA대시보드_*.html | head -1)
           cp "$latest" site/index.html
 
           echo "=============================================="

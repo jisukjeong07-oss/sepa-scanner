@@ -155,7 +155,7 @@ def _columnar(records):
 
 def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
                  data_as_of=None, missed_patterns=None, breadth=None, macro=None,
-                 sector_status=None, kr_today=None):
+                 sector_status=None, kr_today=None, us_today=None):
     """스캔 CSV + 부가 스냅샷을 latest.json 한 파일로 저장하고 경로를 돌려준다."""
     df = _normalize_ticker(pd.read_csv(csv_path, dtype={"Unnamed: 0": str}))
 
@@ -205,7 +205,7 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
 
     payload = {
         "generated_at": datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"),
-        "session": {"AM": "장전", "PM": "장마감"}.get(session, session or "수동"),
+        "session": {"AM": "장전", "PM": "장마감", "US": "미국마감"}.get(session, session or "수동"),
         "data_date": data_date,
         "universe": {"total": int(len(df)), "kr": n(mk.eq("KR")), "us": n(mk.eq("US"))},
         "summary": {
@@ -224,6 +224,9 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
         # [2026-10-12] 한국 당일 봉 출처. source="KIS"면 한국 종목의 price·pdate가
         # 오늘(KIS 15:30 봉) 기준, "KRX"면 KRX Open API의 전 영업일 종가 기준.
         "kr_today": _jsonable(kr_today or {}),
+        # [2026-10-13] 미국 당일 봉 출처. source="KIS"면 미국 종목의 price·pdate가
+        # 방금 끝난 정규장(KIS 현재가) 기준, "yahoo"면 야후 일봉(전 영업일) 기준.
+        "us_today": _jsonable(us_today or {}),
         "rows": _columnar(rows),
     }
 

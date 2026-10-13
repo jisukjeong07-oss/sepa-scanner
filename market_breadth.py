@@ -111,7 +111,20 @@ def _load_us_data(as_of: dt.date) -> dict:
     tickers = us_universe()
     start = (as_of - dt.timedelta(days=LOOKBACK_DAYS)).strftime("%Y%m%d")
     end = as_of.strftime("%Y%m%d")
-    return fetch_us(tickers, start=start, end=end)
+    data = fetch_us(tickers, start=start, end=end)
+    # [2026-10-13] 스캐너가 이번 실행에서 KIS로 받아 둔 미국 당일 봉이 야후 데이터보다
+    # 새 날짜면 시장 폭에도 반영한다(새로 조회하지 않고 캐시 파일만 쓴다).
+    try:
+        import kis_us_today
+        today_df = kis_us_today.load_today_cache()
+        if today_df is not None and len(today_df):
+            cdate = pd.to_datetime(today_df["date"]).dt.date.iloc[0]
+            if cdate > pd.Timestamp(data["close"].index[-1]).date() and cdate <= as_of:
+                data = kis_us_today.attach_today(data, today_df)
+                print(f"[US breadth] KIS 당일 봉 {len(today_df)}종목 반영 ({cdate})")
+    except Exception as e:
+        print(f"[US breadth] KIS 당일 봉 반영 건너뜀: {str(e)[:100]}")
+    return data
 
 
 # ═════════════════════════════════════════════════════════════

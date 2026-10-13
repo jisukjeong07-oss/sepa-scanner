@@ -26,12 +26,12 @@ import datetime as dt
 import unicodedata
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-SESS_LABEL = {"AM": "장전", "PM": "장마감", "MANUAL": "수동", "HIST": "소급"}
-RANK = {"PM": 2, "MANUAL": 1, "HIST": 1, "AM": 0}
+SESS_LABEL = {"AM": "장전", "PM": "장마감", "US": "미국마감", "MANUAL": "수동", "HIST": "소급"}
+RANK = {"PM": 3, "US": 2, "MANUAL": 1, "HIST": 1, "AM": 0}   # [2026-10-13] US(미국마감, KST 새벽) 추가
 
 
 def _entry(fname: str):
-    m = re.search(r"(\d{8})(?:_(AM|PM|MANUAL|HIST))?\.html$", fname)
+    m = re.search(r"(\d{8})(?:_(AM|PM|US|MANUAL|HIST))?\.html$", fname)
     if not m:
         return None
     key, session = m.group(1), (m.group(2) or "MANUAL")

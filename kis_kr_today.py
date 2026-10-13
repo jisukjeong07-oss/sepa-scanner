@@ -30,6 +30,12 @@ KRX Open API 캐시(어제까지)에 덧붙인다.
 - 키는 환경변수 KIS_APP_KEY / KIS_APP_SECRET(GitHub Secrets)로만 받는다.
   로그에 키·토큰을 찍지 않는다. KIS_DISABLE=1 이면 아무것도 하지 않는다.
 
+[2026-10-13] 병렬 호출 + 미국 세션 재사용
+- 호출은 kis_client.KIS(스레드 + 초당 한도)로 바꿨다. 45~60분 → 6~7분.
+- 미국 장마감 세션(KST 05:17 전후)에서는 KRX 공식 값이 아직 없으므로(08:00 공개),
+  전날 16:16 실행이 받아 둔 cache/kr_kis_today.parquet를 그대로 덧붙인다.
+  (캐시 날짜가 KRX 캐시 마지막 날짜보다 뒤이고 오늘 이전이면 재사용)
+
 조회 시각 규칙 (KST)
 - 오늘이 한국 거래일이고, 캐시 마지막 날짜가 오늘보다 이전일 때만 동작.
 - 16:15 이후면 바로 조회. 15:30~16:15 사이면 16:15까지 기다린다(예약이
@@ -46,21 +52,15 @@ import json
 import datetime as dt
 
 import pandas as pd
-import requests
 
 KST = dt.timezone(dt.timedelta(hours=9))
 BASE = "https://openapi.koreainvestment.com:9443"     # 실전투자 도메인
 CACHE_DIR = "cache"
 TODAY_CACHE = os.path.join(CACHE_DIR, "kr_kis_today.parquet")
-import tempfile
-# 토큰은 저장소 밖(임시 폴더)에 둔다. daily.yml이 cache/ 아래 새 파일을 모두
-# 커밋하므로 cache/에 두면 공개 저장소에 토큰이 올라간다.
-TOKEN_CACHE = os.path.join(tempfile.gettempdir(), "sepa_kis_token.json")
 
 READY_HHMM = (16, 15)        # 이 시각 이후 15:30 봉이 확정된 것으로 본다
 EARLIEST_WAIT_HHMM = (15, 30)  # 이보다 이르면 장전/장중 실행으로 보고 건너뜀
 LATE_CLOSE_DAYS = {"2026-11-19"}   # 정규장 10:00~16:30 (수능일) → 기준 +1시간
-CALL_INTERVAL = 0.06         # 초당 약 16건 (실전 한도 20건/초 아래)
 MAX_MOVE = 0.31              # 전일 대비 ±31% 넘는 종가는 데이터 오류로 보고 버림
 
 
@@ -112,84 +112,13 @@ def decide(now: dt.datetime, last_cached: dt.date | None) -> dict:
 
 
 # ──────────────────────────────────────────────────────────────
-# KIS 호출
+# KIS 호출 — 공용 클라이언트(kis_client.py)
 # ──────────────────────────────────────────────────────────────
-class KIS:
-    def __init__(self, key: str, secret: str):
-        self.key, self.secret = key, secret
-        self.token = None
-        self.calls = 0
-
-    def auth(self):
-        # 토큰은 24시간 유효, 발급은 1분에 1회로 제한된다. 같은 날 재실행에
-        # 대비해 파일에 보관해 두고(커밋 안 함), 남은 시간이 있으면 재사용한다.
-        try:
-            with open(TOKEN_CACHE, encoding="utf-8") as f:
-                c = json.load(f)
-            exp = dt.datetime.fromisoformat(c["expires"])
-            if dt.datetime.now(KST) < exp - dt.timedelta(minutes=10):
-                self.token = c["token"]
-                return
-        except Exception:
-            pass
-        for attempt in range(3):
-            r = requests.post(f"{BASE}/oauth2/tokenP", timeout=20,
-                              json={"grant_type": "client_credentials",
-                                    "appkey": self.key, "appsecret": self.secret})
-            try:
-                j = r.json()
-            except Exception:
-                j = {}
-            if "access_token" in j:
-                self.token = j["access_token"]
-                exp = j.get("access_token_token_expired")      # 'YYYY-MM-DD HH:MM:SS'
-                try:
-                    exp_dt = dt.datetime.strptime(exp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
-                except Exception:
-                    exp_dt = dt.datetime.now(KST) + dt.timedelta(hours=23)
-                try:
-                    with open(TOKEN_CACHE, "w", encoding="utf-8") as f:
-                        json.dump({"token": self.token, "expires": exp_dt.isoformat()}, f)
-                except Exception:
-                    pass
-                return
-            msg = j.get("error_description") or j.get("msg1") or f"HTTP {r.status_code}"
-            if "EGW00133" in str(j) or "1분" in str(msg):
-                print(f"[KIS] 토큰 발급 제한(1분 1회) — 65초 후 재시도 ({attempt + 1}/3)")
-                time.sleep(65)
-                continue
-            raise RuntimeError(f"KIS 토큰 발급 실패: {str(msg)[:120]}")
-        raise RuntimeError("KIS 토큰 발급 실패: 재시도 초과")
-
-    def get(self, path: str, tr_id: str, params: dict) -> dict:
-        h = {"content-type": "application/json; charset=utf-8",
-             "authorization": f"Bearer {self.token}",
-             "appkey": self.key, "appsecret": self.secret,
-             "tr_id": tr_id, "custtype": "P"}
-        j = {}
-        for attempt in range(4):
-            time.sleep(CALL_INTERVAL)
-            self.calls += 1
-            try:
-                r = requests.get(BASE + path, headers=h, params=params, timeout=15)
-                j = r.json()
-            except Exception as e:
-                j = {"rt_cd": "X", "msg1": f"요청 실패: {str(e)[:80]}"}
-                time.sleep(1.0)
-                continue
-            if j.get("msg_cd") == "EGW00201":       # 초당 호출 한도 초과
-                time.sleep(1.0 + attempt)
-                continue
-            return j
-        return j
+from kis_client import KIS, num as _num_shared
 
 
 def _num(v):
-    try:
-        f = float(str(v).replace(",", ""))
-        return f if f == f else None
-    except Exception:
-        return None
+    return _num_shared(v)
 
 
 def _fetch_one(kis: KIS, ticker: str, today_str: str) -> dict | None:
@@ -274,34 +203,28 @@ def fetch_today(tickers, now: dt.datetime | None = None, wait: bool = True) -> t
         print(f"[KIS] 오늘({today}) 봉 캐시 재사용: {len(cached)}종목")
         return cached, st
 
-    kis = KIS(key, sec)
     try:
-        kis.auth()
+        kis = KIS(key, sec).auth()
     except Exception as e:
         st.update(status="failed", reason=str(e)[:150])
         print(f"[KIS] {st['reason']} → 어제 종가로 계속")
         return pd.DataFrame(), st
 
-    rows, t0 = [], time.time()
-    print(f"[KIS] 오늘({today}) 봉 수집 시작: {len(tickers)}종목 (종목당 2회 호출, 약 {len(tickers) * 2 * CALL_INTERVAL / 60:.0f}분 예상)")
-    for i, t in enumerate(tickers, 1):
-        try:
-            r = _fetch_one(kis, t, today_str)
-        except Exception as e:
-            r = None
-            if i <= 3:
-                print(f"  [warn] {t}: {str(e)[:80]}")
+    t0 = time.time()
+    print(f"[KIS] 오늘({today}) 봉 수집 시작: {len(tickers)}종목 (종목당 2회 호출, 병렬)")
+    # 앞 40종목을 먼저 받아 토큰·권한·네트워크를 확인한다. 전부 실패면 바로 포기.
+    head = kis.map(lambda t: _fetch_one(kis, t, today_str), tickers[:40], progress_every=0)
+    if not any(head):
+        st.update(status="failed", reason="초반 40종목 전부 실패 — 토큰/권한/네트워크 문제로 보고 중단",
+                  calls=kis.calls)
+        print(f"[KIS] {st['reason']} → 어제 종가로 계속")
+        return pd.DataFrame(), st
+    rest = kis.map(lambda t: _fetch_one(kis, t, today_str), tickers[40:], progress_every=500)
+    rows = []
+    for r in head + rest:
         if r:
             r["date"] = pd.Timestamp(today)
             rows.append(r)
-        if i % 500 == 0:
-            print(f"  ... {i}/{len(tickers)} ({len(rows)}종목 확보, {time.time() - t0:.0f}초)")
-        # 토큰이 통째로 막힌 경우(초반 50종목이 전부 실패) 빨리 포기한다
-        if i == 50 and not rows:
-            st.update(status="failed", reason="초반 50종목 전부 실패 — 토큰/권한/네트워크 문제로 보고 중단",
-                      calls=kis.calls)
-            print(f"[KIS] {st['reason']} → 어제 종가로 계속")
-            return pd.DataFrame(), st
 
     df = pd.DataFrame(rows)
     st.update(fetched_at=dt.datetime.now(KST).strftime("%Y-%m-%d %H:%M KST"), n_ok=len(df),
@@ -316,8 +239,8 @@ def fetch_today(tickers, now: dt.datetime | None = None, wait: bool = True) -> t
         df.to_parquet(TODAY_CACHE, index=False)
     except Exception as e:
         print(f"[KIS] 오늘 봉 캐시 저장 실패(계속 진행): {e}")
-    print(f"[KIS] 수집 완료: {len(df)}/{len(tickers)}종목, 호출 {kis.calls}회, {time.time() - t0:.0f}초 "
-          f"→ {st['status']}")
+    print(f"[KIS] 수집 완료: {len(df)}/{len(tickers)}종목, 호출 {kis.calls}회"
+          f"{', 한도 재시도 ' + str(kis.retries) + '회' if kis.retries else ''}, {time.time() - t0:.0f}초 → {st['status']}")
     return df, st
 
 
@@ -359,7 +282,30 @@ def apply(data: dict, wait: bool = True, now: dt.datetime | None = None) -> tupl
         last = pd.Timestamp(data["close"].index[-1]).date()
     except Exception:
         pass
-    d = decide(now, last)
+    # [2026-10-13] 전날 장마감 실행이 받아 둔 오늘 봉 캐시가 KRX 캐시보다 새 날짜면
+    # (미국 세션 새벽 실행: KRX 공식 값은 08:00에야 나옴) 새로 조회하지 않고 재사용한다.
+    try:
+        cached = pd.read_parquet(TODAY_CACHE)
+        cdate = pd.to_datetime(cached["date"]).dt.date.iloc[0] if len(cached) else None
+    except Exception:
+        cached, cdate = None, None
+    if cached is not None and cdate is not None and (last is None or cdate > last) and cdate <= now.date():
+        data = attach_today(data, cached)
+        st = {"status": "ok", "date": cdate.isoformat(), "source": "KIS", "fetched_at": "(이전 실행 캐시)",
+              "n_requested": len(data["close"].columns), "n_ok": int(len(cached)),
+              "n_missing": int(len(data["close"].columns) - len(cached)), "reason": "전날 장마감 실행의 KIS 캐시 재사용",
+              "calls": 0}
+        print(f"[KIS] 캐시 재사용: {cdate} 봉 {len(cached)}종목을 KRX 캐시(~{last})에 덧붙임")
+        if cdate >= now.date():
+            return data, st
+        # 캐시가 어제 것이고 지금이 오늘 장마감 이후라면 오늘 봉도 이어서 받는다
+        # (KRX 공식 값 공개가 늦어진 날 대비). 오늘 조건이 안 맞으면 캐시 재사용으로 끝.
+        reused, last = st, cdate
+        d = decide(now, last)
+        if d["action"] == "skip":
+            return data, reused
+    else:
+        d = decide(now, last)
     if d["action"] == "skip":
         st = {"status": "skipped", "date": now.date().isoformat(), "source": "KRX",
               "reason": d["reason"], "n_ok": 0, "n_missing": 0}
