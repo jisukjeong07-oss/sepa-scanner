@@ -296,7 +296,7 @@ MAR	Marriott International
 MAS	Masco
 MCD	McDonald's
 MCHP	Microchip Technology
-MCK	McKesson Corporation
+MCK	McKesson
 MCO	Moody's Corporation
 MDLZ	Mondelez International
 MDT	Medtronic
