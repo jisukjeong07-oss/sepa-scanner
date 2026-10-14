@@ -2817,7 +2817,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
             f"  먼저 python3 sepa_scanner.py --market US 를 실행하세요."
         )
     session = (session or "MANUAL").upper()
-    if session not in ("AM", "PM", "MANUAL", "HIST"):
+    if session not in ("AM", "PM", "US", "MANUAL", "HIST"):
         session = "MANUAL"
 
     hist_dir = hist_dir or HIST_DIR
@@ -2861,7 +2861,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         scan_date = dt.date.today()
         stamp = scan_date.strftime("%Y%m%d")
     date_str = scan_date.strftime("%Y-%m-%d")
-    sess_kr = {"AM": "장전", "PM": "장마감", "MANUAL": "수동 조회", "HIST": "소급 조회"}[session]
+    sess_kr = {"AM": "장전", "PM": "장마감", "US": "미국마감", "MANUAL": "수동 조회", "HIST": "소급 조회"}[session]
     shown_date = scan_date.strftime("%Y년 %m월 %d일") + f" · {sess_kr}"
 
     # ── 실제 데이터 기준일 (표시용 날짜와는 별개) ──────────────
@@ -3049,7 +3049,7 @@ if __name__ == "__main__":
     ap.add_argument("--csv", default=None)
     ap.add_argument("--no-open", action="store_true")
     ap.add_argument("--hist-dir", default=None)
-    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "MANUAL", "HIST"])
+    ap.add_argument("--session", default="MANUAL", choices=["AM", "PM", "US", "MANUAL", "HIST"])
     ap.add_argument("--regen-manifest", action="store_true",
                     help="스캔 없이 history/ 폴더를 다시 훑어 manifest.json만 갱신")
     a = ap.parse_args()

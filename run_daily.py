@@ -148,10 +148,6 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
     # 기존 기록과 충돌하지 않는다. 두 이름이 다를 때 오늘 이름으로 복사해
     # 이후 단계가 전부 stamp 를 따르게 맞춘다.
     scan_stamp = as_of or stamp
-    # [2026-10-13] 미국 장마감(US) 세션은 KST 새벽에 돌아 파일 날짜(stamp)는 오늘이지만,
-    # 데이터는 한국 전날(KIS 캐시)·미국 전날(뉴욕 날짜) 종가다. 기준일 표기를 하루 당긴다.
-    if session == "US" and not as_of:
-        scan_stamp = (dt.datetime.strptime(stamp, "%Y%m%d") - dt.timedelta(days=1)).strftime("%Y%m%d")
     src_csv = os.path.join(OUT_DIR, f"sepa_scan_{scan_stamp}.csv")
     csv_path = os.path.join(OUT_DIR, f"sepa_scan_{stamp}.csv")
     if os.path.abspath(src_csv) != os.path.abspath(csv_path):
@@ -165,6 +161,13 @@ def main(market="ALL", min_rs=70, kr_source="fdr", open_browser=True,
         chart_path = os.path.join(OUT_DIR, f"sepa_vcp_charts_{stamp}.json")
         if os.path.exists(src_chart):
             shutil.copy2(src_chart, chart_path)
+
+    # [2026-10-14] 미국 장마감(US) 세션은 KST 새벽에 돌아 파일 날짜(stamp)는 오늘이지만,
+    # 데이터는 한국 전날(KIS 캐시)·미국 전날(뉴욕 날짜) 종가다. 대시보드·latest.json의
+    # "데이터 기준일" 표기만 하루 당긴다. (10/13 버전은 이 값을 CSV 파일 이름에도 써서
+    # sepa_scan_전날.csv를 찾다가 FileNotFoundError로 실패했다 — 파일 이름은 그대로 둔다.)
+    if session == "US" and not as_of:
+        scan_stamp = (dt.datetime.strptime(stamp, "%Y%m%d") - dt.timedelta(days=1)).strftime("%Y%m%d")
 
     # 2단계: DART 펀더멘털 (한국 포함 + 키가 있을 때만)
     stage2_path = None
