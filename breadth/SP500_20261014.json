@@ -3,9 +3,9 @@
   "tt8_pct": 14.63,
   "tt7_count": 48,
   "trend_ex_rs_pct": 15.43,
-  "nh52": 15,
+  "nh52": 16,
   "nl52": 10,
-  "net_hl": 5,
+  "net_hl": 6,
   "above200_pct": 51.3,
   "above50_pct": 35.87,
   "n_universe": 503,
@@ -15,5 +15,5 @@
   "market": "SP500",
   "data_date": "20261014",
   "source": "live",
-  "generated_at": "2026-10-15T05:30:39"
+  "generated_at": "2026-10-15T16:29:57"
 }
