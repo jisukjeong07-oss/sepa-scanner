@@ -24,6 +24,7 @@ import unicodedata
 
 import market_calendar as mc
 import strategy as strat
+import pass_streak
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(BASE, "output")
@@ -79,7 +80,8 @@ CONDITIONS = [
 ]
 
 
-def _rows(df: pd.DataFrame) -> list:
+def _rows(df: pd.DataFrame, streaks: dict = None) -> list:
+    streaks = streaks or {}
     out = []
     for idx, r in df.iterrows():
         fails = [label for col, label in CONDITIONS
@@ -138,7 +140,65 @@ def _rows(df: pd.DataFrame) -> list:
             "volRatio": _f(r.get("vol_ratio")),
             "volRatioLabel": (str(r.get("vol_ratio_label")) if pd.notna(r.get("vol_ratio_label")) else None),
         })
+        # [2026-10-19] 8조건 연속 통과일수(D) — pass_streak.py 장부에서 계산한 값.
+        # 통과 종목에만 붙는다. pdN=연속일수, pdLabel="3"·"Re1", pdPrev=[시작,끝,일수].
+        st = streaks.get((out[-1]["market"], out[-1]["ticker"])) if out[-1]["pass"] else None
+        if st:
+            out[-1].update({"pdN": st["d"], "pdLabel": st["label"], "pdRe": st["re"],
+                            "pdStart": st["start"], "pdPrev": st["prev"], "pdGap": st["gap"],
+                            "pdWhy": st["why"], "pdFirst": st["from_first"]})
+        else:
+            out[-1]["pdN"] = None
     return out
+
+
+def _fails_by_ticker(df: pd.DataFrame) -> dict:
+    """통과하지 못한 종목별 미달 조건 이름 목록 (pass_streak 장부의 탈락 사유용)."""
+    cols = [(c, label) for c, label in CONDITIONS if c in df.columns]
+    out = {}
+    for idx, r in df[df.get("PASS") != True].iterrows():
+        out[str(idx)] = [label for c, label in cols if not bool(r.get(c, False))]
+    return out
+
+
+def _pass_streaks(df: pd.DataFrame, hist_dir: str, fallback_dates: dict) -> dict:
+    """
+    [2026-10-19] 시장별 그날 날짜에 통과 종목을 장부(history/pass_history.json)에
+    기록하고, 연속 통과일수를 계산해 {(시장, 종목): 정보} 로 돌려준다.
+
+    그날 날짜는 CSV price_date(종목별 실제 마지막 가격 날짜) 중 그 시장의 가장
+    늦은 날짜를 쓴다 — 달력 추정이 아니라 실제로 받은 데이터 날짜다. 없으면
+    화면 기준일(fallback_dates)을 쓴다. 통과 종목이 0개면 데이터 수집 실패로 보고
+    장부에 쓰지 않는다(연속 기록이 하루 끊기는 것을 막음).
+    """
+    if "PASS" not in df.columns or "market" not in df.columns:
+        return {}
+    book = pass_streak.load(hist_dir)
+    fails_all = _fails_by_ticker(df)
+    result = {}
+    changed = False
+    for m in ("KR", "US"):
+        sub = df[df["market"] == m]
+        if sub.empty:
+            continue
+        date = None
+        if "price_date" in sub.columns:
+            pdates = sub["price_date"].dropna().astype(str)
+            if len(pdates):
+                date = pdates.max()[:10]
+        date = date or fallback_dates.get(m)
+        if not date:
+            continue
+        passed = {str(t) for t in sub.index[sub["PASS"] == True]}
+        if passed:
+            fails = {t: v for t, v in fails_all.items() if t in set(map(str, sub.index))}
+            pass_streak.record(book, m, date, passed, fails)
+            changed = True
+        for t, info in pass_streak.compute(book, m, date).items():
+            result[(m, t)] = info
+    if changed:
+        pass_streak.save(hist_dir, book)
+    return result
 
 
 def _f(v):
@@ -419,6 +479,8 @@ input#day{border:1px solid var(--line);border-radius:7px;padding:7px 10px;
   .ext-caut{color:#A96A0B !important}
   th{background:#1B2A4A !important;color:#fff !important;
      -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .hbar-wrap,#pdTip{display:none !important}
+  th:first-child,td:first-child,thead tr.grp th{position:static !important;box-shadow:none !important}
 }
 
 /* 요약 */
@@ -480,8 +542,64 @@ td{padding:8px;text-align:right;border-bottom:1px solid #EEF1F4;white-space:nowr
 tbody tr{cursor:pointer}
 tbody tr:hover{background:#F6F8FA}
 tbody tr.sel{background:#EEF3F8}
-.tk{font-weight:700;letter-spacing:-.01em}
-.nm{font-size:11px;color:var(--muted);display:block;font-weight:400}
+.tk{font-weight:700;letter-spacing:-.01em;font-size:12px}
+.nm{font-size:10.5px;color:var(--muted);display:block;font-weight:400}
+
+/* [2026-10-19] 8조건 연속 통과일수(D) */
+.pd{min-width:38px;min-height:28px;border-radius:6px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:800;
+  cursor:help;padding:0 6px;font-variant-numeric:tabular-nums}
+.pd.new{background:#FFF1D6;border-color:#FFF1D6;color:#8A4B00}
+.pd.re{background:var(--surface);border:1.5px solid #D98B1A;color:#8A4B00}
+.pd.long{background:#F0F2F5;border-color:#F0F2F5}
+td.pdcell{text-align:center}
+th.pdh{background:#8A4B00 !important}
+#pdTip{position:fixed;z-index:60;width:290px;background:#12161C;color:#fff;border-radius:8px;
+  padding:11px 13px;font-size:12px;line-height:1.6;box-shadow:0 10px 28px rgba(18,22,28,.28);
+  pointer-events:none;display:none;text-align:left}
+#pdTip .t{font-weight:800;font-size:13px;margin-bottom:3px}
+#pdTip .fail{color:#F3C987}
+#pdTip .note{margin-top:5px;color:#B8C0CA;font-size:11px}
+.stat.newpass .k{color:#8A4B00;font-weight:700}
+.stat.newpass .v{color:#8A4B00}
+.stat.newpass .sub{font-size:11px;color:#8A4B00;margin-top:2px}
+.pd-filter{border:1.5px solid #D98B1A;background:#FFF7E6;color:#8A4B00;font-weight:700}
+
+/* [2026-10-19] 열 묶음 제목(기본·추세·수급·셋업), 종목 열 고정, 줄무늬 */
+thead tr.grp th{position:sticky;top:0;height:24px;box-sizing:border-box;padding:4px 8px;
+  font-size:11px;color:#C9D2DE;background:#15223D;letter-spacing:.04em;cursor:default;
+  text-align:center;line-height:1}
+thead tr.grp th:first-child{text-align:left}
+thead tr.grp th{left:auto}
+thead tr.grp + tr th{top:24px}
+th.gs,td.gs{border-left:2px solid #3A4A6B}
+td.gs{border-left-color:#E6EAEE}
+th:first-child,td:first-child{position:sticky;left:0}
+td:first-child{z-index:1;background:var(--surface);box-shadow:2px 0 0 #E3E8ED}
+thead tr:not(.grp) th:first-child{z-index:4}
+tbody tr:nth-child(even) td{background:#FAFBFC}
+tbody tr:hover td{background:#F6F8FA}
+tbody tr.sel td{background:#EEF3F8}
+
+/* [2026-10-19] 가로 스크롤 막대 — 표 상자 안의 스크롤바는 상자 아래쪽이 화면 밖에
+   있거나 macOS가 숨기면 쓸 수 없었다. 표 바로 아래에 별도 막대를 두고
+   position:sticky; bottom:0 으로 표가 화면에 있는 동안 늘 화면 맨 아래에 붙게 한다.
+   표 상자 자체의 가로 스크롤바는 숨기고(세로는 유지) 두 막대를 서로 연동한다. */
+.tbl-block{position:relative}
+.hbar-wrap{position:sticky;bottom:0;z-index:30;background:var(--surface);
+  border:1px solid var(--line);border-top:1px solid #E3E8ED;border-radius:0 0 10px 10px;
+  padding:6px 10px 8px;margin-top:-1px;box-shadow:0 -6px 14px rgba(18,22,28,.06);
+  display:flex;align-items:center;gap:10px}
+.hbar-wrap[hidden]{display:none}
+.hbar-hint{font-size:11px;color:var(--muted);white-space:nowrap}
+.hbar{flex:1;position:relative;height:14px;background:#E3E7EB;border-radius:7px;
+  cursor:pointer;touch-action:none;user-select:none}
+.hbar-thumb{position:absolute;top:2px;height:10px;left:0;min-width:40px;border-radius:5px;
+  background:#8E949B;cursor:grab}
+.hbar-thumb:hover,.hbar.drag .hbar-thumb{background:#5F6873}
+.hbar.drag .hbar-thumb{cursor:grabbing}
+.tbl-scroll.has-hbar{border-radius:10px 10px 0 0}
+.tbl-scroll.has-hbar::-webkit-scrollbar{height:0}
 .pos{color:var(--up)} .neg{color:var(--down)}
 .badge{display:inline-block;font-size:10px;padding:2px 6px;border-radius:4px;
        background:#F0F2F5;color:var(--ink-2);margin-left:4px;font-weight:600;cursor:help}
@@ -732,6 +850,8 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   .wrap{padding:18px 12px 60px}
   h1{font-size:21px}
   .hide-s{display:none}
+  thead tr.grp{display:none}
+  thead tr.grp + tr th{top:0}
   .rail{width:52px}
   .railwrap{gap:6px}
   .railnum{font-size:11.5px;min-width:46px}
@@ -910,6 +1030,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
 
 <div class="stats">
   <div class="stat"><div class="k">8조건 통과</div><div class="v hl num" id="statPass">0</div></div>
+  <div class="stat newpass"><div class="k">오늘 새로 통과</div><div class="v num" id="statNew">0</div><div class="sub" id="statNewSub"></div></div>
   <div class="stat"><div class="k">7조건 관찰</div><div class="v num" id="statNear">0</div></div>
   <div class="stat"><div class="k">관심</div><div class="v num" id="statFav">0</div></div>
   <div class="stat"><div class="k">화면 표시</div><div class="v num" id="shown">0</div></div>
@@ -952,6 +1073,12 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
     </select>
     <button id="devDaysHelpBtn" class="help-btn" aria-label="이격 지속일수 설명" title="이격 지속일수란?">?</button>
   </span>
+  <select id="pdFilter" aria-label="통과일수 필터" class="vcp-filter pd-filter">
+    <option value="">통과일수: 전체</option>
+    <option value="1-3">새로 통과 (1~3일)</option>
+    <option value="4-9">4~9일</option>
+    <option value="10-9999">10일 이상</option>
+  </select>
   <label class="rs" style="gap:5px">
     <input type="checkbox" id="hideOverheated"> 수급과열 숨기기
   </label>
@@ -972,7 +1099,14 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   </div>
 </div>
 
-<div id="host"></div>
+<div class="tbl-block">
+  <div id="host"></div>
+  <div class="hbar-wrap" id="hbarWrap" hidden>
+    <span class="hbar-hint">← 좌우로 →</span>
+    <div class="hbar" id="hbar" role="scrollbar" aria-controls="tblScroll" aria-orientation="horizontal" aria-label="표 가로 스크롤"><div class="hbar-thumb" id="hbarThumb"></div></div>
+  </div>
+</div>
+<div id="pdTip" role="tooltip"></div>
 
 <section id="chartWrap" class="chart-wrap" hidden>
   <div class="chart-head">
@@ -1324,7 +1458,7 @@ const VCP_CHARTS = __VCP_CHARTS__;   // vcp.py 결과 (통과·관찰 종목만,
   idxHost2.innerHTML = renderRow(row2, true);
 })();
 let view="pass", mkt="US", minRS=0, q="", vcpFilter="", sortKey="cap", sortDir=-1, open=null;
-let devDaysFilter="", hideOverheated=false;
+let devDaysFilter="", hideOverheated=false, pdFilter="";
 let activeSector=null, sectorView="treemap";
 let capInKRW=false;   // 미국 탭 시가총액을 원화(조원)로 환산해서 보여줄지
 
@@ -1335,23 +1469,27 @@ function usdKrwRate(){
   return (row && row.ok) ? row.value : null;
 }
 
+// [2026-10-19] 통과일수(D) 추가, 52주 고점 대비는 숫자만, 거래량비율을 "수급" 묶음으로 이동.
+// 네 번째 값 "gs" = 묶음 시작 열(왼쪽 굵은 구분선).
 const COLS=[
   ["ticker","종목",""],
   ["price","현재가",""],
   ["rs","RS",""],
-  ["high","52주 고점 대비","rail"],
-  ["low","저점대비%","hide-s"],
+  ["pdN","통과일수<br>(D)","pd"],
+  ["high","52주 고점<br>대비","","gs"],
+  ["low","저점<br>대비%","hide-s"],
   ["ma50","50일선<br>이격%","hide-s"],
-  ["devDays","이격일수","hide-s"],
+  ["devDays","이격<br>일수","hide-s"],
   ["slope","200일선<br>기울기%","hide-s"],
-  ["turnover","거래대금","hide-s"],
+  ["turnover","거래대금","hide-s","gs"],
   ["cap","시가총액","hide-s"],
-  ["pivot","피벗대비(%)","hide-s"],
+  ["volRatio","거래량<br>비율","hide-s"],
+  ["pivot","피벗<br>대비(%)","hide-s","gs"],
   ["legs","수축","hide-s"],
-  ["risk","손절리스크%","hide-s"],
+  ["risk","손절<br>리스크%","hide-s"],
   ["vcp","VCP","hide-s"],
-  ["volRatio","거래량비율","hide-s"],
 ];
+const COL_GROUPS=[["기본",4],["추세",5],["수급",3],["셋업 (VCP)",4]];
 
 function capUnitLabel(m){ return m==="US" ? "* 시가총액($1B 기준)" : "* 시가총액(1천억원 기준)"; }
 
@@ -1506,6 +1644,10 @@ function updateStats(){
   const inMkt = DATA.filter(d=>d.market===mkt);
   document.getElementById("statPass").textContent = inMkt.filter(d=>d.pass).length;
   document.getElementById("statNear").textContent = inMkt.filter(d=>!d.pass && d.met>=7).length;
+  const fresh = inMkt.filter(d=>d.pass && d.pdN===1);
+  const nRe = fresh.filter(d=>d.pdRe).length;
+  document.getElementById("statNew").textContent = fresh.length;
+  document.getElementById("statNewSub").textContent = fresh.length ? `처음 ${fresh.length-nRe} · 재진입 ${nRe}` : "";
   document.getElementById("statFav").textContent = inMkt.filter(d=>FAVS.has(favKey(d))).length;
 }
 
@@ -1523,6 +1665,10 @@ function filtered(){
       if(dd<lo || dd>hi) return false;
     }
     if(hideOverheated && d.turnoverRatio!=null && d.turnoverRatio>=TURNOVER_HOT) return false;
+    if(pdFilter){
+      const [lo,hi]=pdFilter.split("-").map(Number);
+      if(!d.pass || d.pdN==null || d.pdN<lo || d.pdN>hi) return false;
+    }
     // [2026-09-16] 문자열이 화면엔 똑같이 "금융"으로 보여도, 한쪽은 완성형
     // (NFC)·다른 쪽은 자모분리형(NFD)일 수 있다(맥OS에서 이 프로젝트가 전에
     // 파일명으로 겪었던 것과 같은 부류의 문제). normalize("NFC")로 강제
@@ -1571,14 +1717,17 @@ function render(){
         : `<span>* 시가총액($1B 기준)</span> <button id="capToggleBtn" class="help-btn cap-toggle" type="button">원화 환산</button>`)
     : capUnitLabel(mkt);
   let h=`<div class="tbl-note">${capNote}</div>
-    <div class="tbl-scroll"><table><thead><tr>`;
-  for(const [k,label,cls] of COLS){
+    <div class="tbl-scroll" id="tblScroll"><table><thead><tr class="grp">`;
+  COL_GROUPS.forEach(([g,n],i)=>{ h+=`<th colspan="${n}"${i?' class="gs"':''}>${g}</th>`; });
+  h+='</tr><tr>';
+  for(const [k,label,cls,gs] of COLS){
     const on = sortKey===k ? ` aria-sort="${sortDir===1?"ascending":"descending"}"` : "";
     // 시가총액 헤더만 예외적으로 단위를 동적으로 바꿔 보여준다(달러 ↔ 원화 환산).
     const headLabel = (k==="cap")
       ? (mkt==="US" ? (capInKRW ? "시가총액<br>(1천억원)" : "시가총액<br>($1B)") : label)
       : label;
-    h+=`<th class="${cls==="hide-s"?"hide-s":""}" data-k="${k}"${on}>${headLabel}</th>`;
+    const c=[cls==="hide-s"?"hide-s":"", cls==="pd"?"pdh":"", gs?"gs":""].filter(Boolean).join(" ");
+    h+=`<th class="${c}" data-k="${k}"${on}>${headLabel}</th>`;
   }
   h+='</tr></thead><tbody>';
 
@@ -1608,21 +1757,134 @@ function render(){
           <span class="tip">${tipBody}</span></span></td>
       <td class="num">${num(d.price)}</td>
       <td class="num"><strong>${d.rs==null?"–":d.rs}</strong></td>
-      <td>${rail(d.high)}</td>
+      <td class="pdcell">${pdCell(d)}</td>
+      <td class="num gs">${highCell(d.high)}</td>
       <td class="num hide-s ${sign(d.low)}">${num(d.low)}</td>
       <td class="num hide-s">${ma50Cell(d.ma50)}</td>
       <td class="num hide-s">${devDaysCell(d.devDays, d.devTrend, d.devPeak)}</td>
       <td class="num hide-s ${sign(d.slope)}">${num(d.slope)}</td>
-      <td class="num hide-s">${turnoverCell(d.turnover, d.market, d.turnoverRatio, d.turnoverRatio5d)}</td>
+      <td class="num hide-s gs">${turnoverCell(d.turnover, d.market, d.turnoverRatio, d.turnoverRatio5d)}</td>
       <td class="num hide-s">${fmtCap(d.cap,d.market)}</td>
-      <td class="num hide-s">${pivotCell(d.pivot, d.pivotPrice)}</td>
+      <td class="num hide-s">${volRatioCell(d.volRatio, d.volRatioLabel)}</td>
+      <td class="num hide-s gs">${pivotCell(d.pivot, d.pivotPrice)}</td>
       <td class="num hide-s">${d.legs==null?"–":d.legs+"개"}</td>
       <td class="num hide-s">${riskCell(d.risk, d.stopPrice)}</td>
-      <td class="hide-s">${vcpBadge(d.vcp, d.tight, d.dryup)}</td>
-      <td class="num hide-s">${volRatioCell(d.volRatio, d.volRatioLabel)}</td></tr>`;
+      <td class="hide-s">${vcpBadge(d.vcp, d.tight, d.dryup)}</td></tr>`;
   }
   host.innerHTML=h+"</tbody></table></div>";
+  setupHbar();
 }
+
+// ── [2026-10-19] 통과일수(D) 칸 ──────────────────────────
+function pdCell(d){
+  if(!d.pass || d.pdN==null) return "–";
+  const cls = d.pdRe ? "pd re" : (d.pdN<=3 ? "pd new" : (d.pdN>=10 ? "pd long" : "pd"));
+  const aria = d.pdRe ? `재진입 ${d.pdN}일째` : `통과 ${d.pdN}일째`;
+  return `<button type="button" class="${cls}" data-pd="${esc(d.market+":"+d.ticker)}" aria-label="${aria}">${d.pdLabel}</button>`;
+}
+// 52주 고점 대비 — 막대 없이 숫자만 (고점 3% 이내면 굵게)
+function highCell(v){
+  if(v==null) return "–";
+  const txt=(v>0?"+":"")+v.toFixed(1)+"%";
+  return `<span class="${v>=-3?"pos":"neg"}" style="${v>=-3?"font-weight:700":""}" title="52주 고점 대비 ${v}%">${txt}</span>`;
+}
+const PD_INDEX = new Map(DATA.map(d=>[d.market+":"+d.ticker, d]));
+const md = s => s ? `${+s.slice(5,7)}/${+s.slice(8,10)}` : "";
+function pdTipHtml(d){
+  const title = `${esc(d.name)} · ${d.pdRe ? `재진입 ${d.pdN}일째` : `통과 ${d.pdN}일째`}`;
+  const prev = d.pdPrev ? `${md(d.pdPrev[0])} ~ ${md(d.pdPrev[1])} (${d.pdPrev[2]}일)` : "최근 10거래일 없음 (처음 통과)";
+  let h = `<div class="t">${title}</div><div>이번 통과 시작: ${md(d.pdStart)}</div><div>직전 통과: ${prev}</div>`;
+  if(d.pdRe){
+    const days = (d.pdGap||[]).map(md).join("·");
+    const why = (d.pdWhy||[]).length ? `${d.pdWhy.join(", ")} 미달` : "사유 기록 없음";
+    h += `<div class="fail">${days} 탈락 — ${why}</div>`;
+    h += `<div class="note">재진입 = 최근 10거래일 안에 통과했다가 빠진 뒤 다시 들어옴</div>`;
+  }
+  if(d.pdFirst) h += `<div class="note">기록 시작일부터 계속 통과 중 — 실제로는 더 길 수 있음</div>`;
+  return h;
+}
+const pdTip = document.getElementById("pdTip");
+let pdPinned = null;
+function showPdTip(btn){
+  const d = PD_INDEX.get(btn.dataset.pd);
+  if(!d || !pdTip) return;
+  pdTip.innerHTML = pdTipHtml(d);
+  pdTip.style.display = "block";
+  const r = btn.getBoundingClientRect();
+  const w = pdTip.offsetWidth, hgt = pdTip.offsetHeight;
+  let left = Math.min(Math.max(8, r.left - 20), window.innerWidth - w - 8);
+  let top = r.bottom + 6;
+  if(top + hgt > window.innerHeight - 8) top = Math.max(8, r.top - hgt - 6);
+  pdTip.style.left = left + "px"; pdTip.style.top = top + "px";
+}
+function hidePdTip(){ if(pdTip && !pdPinned) pdTip.style.display = "none"; }
+document.addEventListener("mouseover", e=>{ const b=e.target.closest("button[data-pd]"); if(b) showPdTip(b); });
+document.addEventListener("mouseout", e=>{ const b=e.target.closest("button[data-pd]"); if(b && !b.contains(e.relatedTarget)) hidePdTip(); });
+document.addEventListener("focusin", e=>{ const b=e.target.closest("button[data-pd]"); if(b) showPdTip(b); });
+document.addEventListener("focusout", e=>{ const b=e.target.closest("button[data-pd]"); if(b) hidePdTip(); });
+// 모바일: 탭하면 고정, 다른 곳을 누르면 닫힘. 행 클릭(차트 열기)으로 번지지 않게 막는다.
+document.addEventListener("click", e=>{
+  const b=e.target.closest("button[data-pd]");
+  if(b){ e.stopPropagation(); pdPinned = (pdPinned===b) ? null : b; if(pdPinned) showPdTip(b); else hidePdTip(); return; }
+  if(pdPinned){ pdPinned=null; hidePdTip(); }
+}, true);
+window.addEventListener("scroll", ()=>{ pdPinned=null; hidePdTip(); }, true);
+
+// ── [2026-10-19] 화면 아래에 붙는 가로 스크롤 막대 ─────────
+// 브라우저 기본 스크롤바는 macOS·헤드리스 등에서 숨겨질 수 있어, 막대(트랙)와
+// 손잡이(thumb)를 직접 그린다. 손잡이를 끌거나 트랙을 누르면 표가 움직이고,
+// 표를 트랙패드로 밀면 손잡이가 따라 움직인다.
+function hbarUpdate(){
+  const box = document.getElementById("tblScroll");
+  const bar = document.getElementById("hbar");
+  const thumb = document.getElementById("hbarThumb");
+  if(!box || !bar || !thumb) return;
+  const tw = bar.clientWidth, sw = box.scrollWidth, cw = box.clientWidth;
+  const w = Math.max(40, tw * cw / sw);
+  const maxL = Math.max(0, tw - w), maxS = Math.max(1, sw - cw);
+  thumb.style.width = w + "px";
+  thumb.style.left = (maxL * box.scrollLeft / maxS) + "px";
+}
+function setupHbar(){
+  const box = document.getElementById("tblScroll");
+  const wrap = document.getElementById("hbarWrap");
+  const bar = document.getElementById("hbar");
+  const thumb = document.getElementById("hbarThumb");
+  if(!wrap || !bar || !thumb) return;
+  if(!box){ wrap.hidden = true; return; }
+  const need = box.scrollWidth > box.clientWidth + 1;
+  wrap.hidden = !need;
+  box.classList.toggle("has-hbar", need);
+  if(!need) return;
+  box.onscroll = hbarUpdate;
+  hbarUpdate();
+  if(bar.dataset.bound) return;
+  bar.dataset.bound = "1";
+  const scrollTo = (clientX, grabOffset)=>{
+    const b = document.getElementById("tblScroll"); if(!b) return;
+    const r = bar.getBoundingClientRect(), w = thumb.offsetWidth;
+    const maxL = Math.max(1, r.width - w);
+    const left = Math.min(maxL, Math.max(0, clientX - r.left - grabOffset));
+    b.scrollLeft = left / maxL * (b.scrollWidth - b.clientWidth);
+    hbarUpdate();
+  };
+  let grab = null;
+  bar.addEventListener("pointerdown", e=>{
+    const tr = thumb.getBoundingClientRect();
+    grab = (e.target === thumb) ? (e.clientX - tr.left) : thumb.offsetWidth / 2;
+    bar.classList.add("drag"); bar.setPointerCapture(e.pointerId);
+    scrollTo(e.clientX, grab); e.preventDefault();
+  });
+  bar.addEventListener("pointermove", e=>{ if(grab!==null) scrollTo(e.clientX, grab); });
+  const end = e=>{ grab = null; bar.classList.remove("drag"); };
+  bar.addEventListener("pointerup", end); bar.addEventListener("pointercancel", end);
+  // 막대 위에서 휠을 돌리면 가로로 움직이게
+  bar.addEventListener("wheel", e=>{
+    const b = document.getElementById("tblScroll"); if(!b) return;
+    b.scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY); e.preventDefault();
+  }, {passive:false});
+}
+window.addEventListener("resize", setupHbar);
 
 document.addEventListener("click",e=>{
   const seg=e.target.closest(".seg button");
@@ -2467,6 +2729,7 @@ document.getElementById("q").addEventListener("input",e=>{q=e.target.value;rende
 document.getElementById("vcpFilter").addEventListener("change",e=>{vcpFilter=e.target.value;render();});
 document.getElementById("devDaysFilter").addEventListener("change",e=>{devDaysFilter=e.target.value;render();});
 document.getElementById("hideOverheated").addEventListener("change",e=>{hideOverheated=e.target.checked;render();});
+document.getElementById("pdFilter").addEventListener("change",e=>{pdFilter=e.target.value;render();});
 
 // PDF 저장: 브라우저 인쇄 대화상자에서 "PDF로 저장" 선택
 document.getElementById("pdf").addEventListener("click",()=>window.print());
@@ -2941,6 +3204,13 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
         except Exception as e:
             print(f"[경고] 매매전략 생성 실패(대시보드는 정상 생성됨): {e}")
 
+    streaks = {}
+    try:
+        streaks = _pass_streaks(df, hist_dir, {"KR": kr_basis_date.strftime("%Y-%m-%d"),
+                                               "US": us_basis_date.strftime("%Y-%m-%d")})
+    except Exception as e:
+        print(f"[경고] 통과일수 계산 실패(대시보드는 정상 생성됨, D열은 빈칸): {e}")
+
     def _dot(open_): return "open" if open_ else "closed"
 
     # [2026-09-14] "9월 14일 장마감"이라는 표지 날짜와, 실제로 이 화면이
@@ -2952,7 +3222,7 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     generated_at_label = f"{_now:%Y-%m-%d}({_WEEKDAY_KR[_now.weekday()]}) {_now:%H:%M} KST"
 
     html = (HTML
-            .replace("__DATA__", json.dumps(_rows(df), ensure_ascii=False))
+            .replace("__DATA__", json.dumps(_rows(df, streaks), ensure_ascii=False))
             .replace("__STRATEGY__", strategy_json)
             .replace("__DATE__", shown_date)
             .replace("__GENERATED_AT__", generated_at_label)
