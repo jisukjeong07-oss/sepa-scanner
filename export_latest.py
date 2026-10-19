@@ -190,10 +190,30 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
     for col in NUMERIC & set(sel.columns):
         sel[col] = pd.to_numeric(sel[col], errors="coerce")
 
+    # [2026-10-19] 8조건 연속 통과일수 — make_dashboard.build()가 먼저 장부
+    # (history/pass_history.json)에 오늘 기록을 남기므로 여기서는 읽어서 계산만 한다.
+    # pdays: "3" 또는 재진입 "Re1", pstart: 이번 통과 시작일. 통과 종목에만 값이 있다.
+    streaks, pd_summary = {}, {}
+    try:
+        import pass_streak
+        book = pass_streak.load(out_dir)
+        for m in ("KR", "US"):
+            if "price_date" in df.columns and "market" in df.columns:
+                dates = df.loc[df["market"].astype(str) == m, "price_date"].dropna().astype(str)
+                if len(dates):
+                    st = pass_streak.compute(book, m, dates.max()[:10])
+                    streaks.update({(m, t): v for t, v in st.items()})
+                    pd_summary[m.lower()] = pass_streak.summary(st)
+    except Exception as e:
+        print(f"[export_latest] 통과일수 계산 건너뜀: {e}")
+
     rows = []
     for _, r in sel.iterrows():
         row = {dst: _clean(r[src]) for src, dst in FIELDS.items() if src in sel.columns}
         row["prev_price"] = _clean(prev.get(f"{row.get('mkt')}:{row.get('tic')}"))
+        st = streaks.get((row.get("mkt"), str(row.get("tic"))))
+        row["pdays"] = st["label"] if st else None
+        row["pstart"] = st["start"] if st else None
         rows.append(row)
 
     cond = pd.to_numeric(df.get("conditions_met"), errors="coerce").fillna(0)
@@ -214,6 +234,8 @@ def write_latest(csv_path, out_dir="history", stage2_csv=None, session="",
             # PASS 컬럼과 대시보드 "통과" 표시가 어긋나는지 점검용(2026-09-23 us_pass=0 이슈)
             "kr_cond8": n(cond.eq(8), "KR"), "us_cond8": n(cond.eq(8), "US"),
             "rows_exported": len(rows),
+            # 오늘 새로 8조건 통과(연속 1일째) 수: new = first(처음) + re(재진입)
+            "new_pass": pd_summary,
         },
         # developing = 관찰 중, confirmed = 이미 놓침. PDF 4개를 대체한다.
         "watching": _columnar(_jsonable((missed_patterns or {}).get("developing", []))),
