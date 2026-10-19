@@ -1,0 +1,31 @@
+{
+  "설명": "Claude 액션시트에서 매수 후보(1·2순위 등)로 낸 종목. rec_ledger.py가 읽어 '추천 성적표'의 액션시트 성적을 계산한다. date=액션시트 날짜(한국 아침 발행, 미국은 그날 밤 장부터), pivot=기준가, stop=손절가(없으면 risk%로 계산, 둘 다 없으면 매수가 -7%). 같은 종목은 처음 추천한 날 한 번만 적는다.",
+  "picks": [
+    {"date": "2026-09-29", "market": "KR", "ticker": "003490", "name": "대한항공", "pivot": 32100, "risk": 5.0, "rank": "1순위"},
+    {"date": "2026-09-29", "market": "KR", "ticker": "316140", "name": "우리금융지주", "pivot": 37050, "risk": 5.9, "rank": "후보"},
+    {"date": "2026-09-29", "market": "US", "ticker": "CRL", "name": "찰스리버랩스", "pivot": 298.40, "risk": 8.1, "rank": "1순위"},
+    {"date": "2026-09-29", "market": "US", "ticker": "MRK", "name": "머크", "pivot": 153.57, "risk": 5.7, "rank": "2순위"},
+    {"date": "2026-09-29", "market": "US", "ticker": "ZBRA", "name": "지브라", "pivot": 365.00, "risk": 8.8, "rank": "후보", "note": "이미 돌파, 383 넘으면 포기"},
+    {"date": "2026-09-29", "market": "US", "ticker": "ANET", "name": "아리스타", "pivot": 206.13, "stop": 200.0, "rank": "후보"},
+    {"date": "2026-09-30", "market": "KR", "ticker": "033780", "name": "KT&G", "pivot": 177700, "risk": 5.4, "rank": "1순위"},
+    {"date": "2026-09-30", "market": "US", "ticker": "CRWD", "name": "크라우드스트라이크", "pivot": 263.87, "risk": 7.5, "rank": "2순위"},
+    {"date": "2026-10-02", "market": "KR", "ticker": "096530", "name": "씨젠", "pivot": 37650, "stop": 36350, "rank": "조건부"},
+    {"date": "2026-10-02", "market": "US", "ticker": "FTNT", "name": "포티넷", "pivot": 181.37, "risk": 7.4, "rank": "2순위"},
+    {"date": "2026-10-06", "market": "KR", "ticker": "028670", "name": "팬오션", "pivot": 6300, "stop": 5860, "rank": "1순위"},
+    {"date": "2026-10-06", "market": "US", "ticker": "DDOG", "name": "데이터독", "pivot": 280.70, "stop": 261.0, "rank": "후보"},
+    {"date": "2026-10-06", "market": "US", "ticker": "FFIV", "name": "F5", "pivot": 462.00, "stop": 429.0, "rank": "후보"},
+    {"date": "2026-10-07", "market": "KR", "ticker": "192820", "name": "코스맥스", "pivot": 292500, "risk": 7.0, "rank": "1순위", "note": "이미 돌파, 307,000 이하에서만"},
+    {"date": "2026-10-08", "market": "US", "ticker": "MPC", "name": "마라톤 페트롤리엄", "pivot": 444.99, "risk": 3.2, "rank": "1순위"},
+    {"date": "2026-10-08", "market": "US", "ticker": "NTAP", "name": "넷앱", "pivot": 238.08, "risk": 4.0, "rank": "2순위"},
+    {"date": "2026-10-12", "market": "US", "ticker": "HPE", "name": "HP엔터프라이즈", "pivot": 73.56, "risk": 5.2, "rank": "2순위"},
+    {"date": "2026-10-15", "market": "US", "ticker": "PSX", "name": "필립스66", "pivot": 298.87, "risk": 4.0, "rank": "1순위"},
+    {"date": "2026-10-15", "market": "US", "ticker": "COP", "name": "코노코필립스", "pivot": 142.60, "risk": 2.2, "rank": "1순위"},
+    {"date": "2026-10-15", "market": "US", "ticker": "CNC", "name": "센틴", "pivot": 70.37, "risk": 4.0, "rank": "2순위"},
+    {"date": "2026-10-15", "market": "US", "ticker": "EXPD", "name": "익스페디터스", "pivot": 197.40, "risk": 2.9, "rank": "2순위"},
+    {"date": "2026-10-16", "market": "US", "ticker": "AMGN", "name": "암젠", "pivot": 426.59, "risk": 8.1, "rank": "되돌림 대기"},
+    {"date": "2026-10-16", "market": "US", "ticker": "A", "name": "애질런트", "pivot": 177.10, "risk": 2.9, "rank": "2순위"},
+    {"date": "2026-10-16", "market": "US", "ticker": "VEEV", "name": "비바시스템즈", "pivot": 315.02, "risk": 7.1, "rank": "2순위"},
+    {"date": "2026-10-20", "market": "KR", "ticker": "006400", "name": "삼성SDI", "pivot": 600000, "rank": "1순위 대기", "note": "코스피 재진입 조건 충족 시만. 손절 매수가 -7%"},
+    {"date": "2026-10-20", "market": "KR", "ticker": "096770", "name": "SK이노베이션", "pivot": 165400, "rank": "2순위 대기", "note": "삼성SDI와 같은 업종, 하나만"}
+  ]
+}

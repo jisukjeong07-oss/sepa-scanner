@@ -25,6 +25,7 @@ import unicodedata
 import market_calendar as mc
 import strategy as strat
 import pass_streak
+import rec_ledger
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(BASE, "output")
@@ -158,6 +159,19 @@ def _fails_by_ticker(df: pd.DataFrame) -> dict:
     out = {}
     for idx, r in df[df.get("PASS") != True].iterrows():
         out[str(idx)] = [label for c, label in cols if not bool(r.get(c, False))]
+    return out
+
+
+def _market_dates(df: pd.DataFrame, fallback_dates: dict) -> dict:
+    """시장별 그날 날짜 = CSV price_date 중 그 시장의 가장 늦은 날짜(없으면 화면 기준일)."""
+    out = {}
+    for m in ("KR", "US"):
+        d = None
+        if "market" in df.columns and "price_date" in df.columns:
+            pdates = df.loc[df["market"] == m, "price_date"].dropna().astype(str)
+            if len(pdates):
+                d = pdates.max()[:10]
+        out[m] = d or fallback_dates.get(m)
     return out
 
 
@@ -796,6 +810,35 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
   font-family:inherit;margin-left:10px;vertical-align:middle}
 .strat-open:hover{background:#1a2b4c;color:#fff}
 
+/* [2026-10-19] 추천 성적표 */
+.rec-open{border-color:#8A4B00;color:#8A4B00}
+.rec-open:hover{background:#8A4B00;color:#fff}
+.modal.rec-modal{max-width:1080px}
+.rec-note{margin:0 0 10px;color:var(--muted);font-size:11.5px;line-height:1.6}
+.rec-cmp{width:100%;border-collapse:collapse;font-size:12.5px;margin:4px 0 14px}
+.rec-cmp th,.rec-cmp td{padding:7px 9px;border-bottom:1px solid #EEF1F4;text-align:right;position:static;box-shadow:none}
+.rec-cmp th{background:#F5F7F9 !important;color:var(--ink-2);font-weight:700;font-size:12px}
+.rec-cmp th:first-child,.rec-cmp td:first-child{text-align:left}
+.rec-cmp .sub{display:block;font-size:10.5px;color:var(--muted);font-weight:400}
+.rec-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 10px}
+.rec-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px}
+.rec-card{border:1px solid var(--line);border-radius:8px;padding:9px 11px}
+.rec-card .k{font-size:11px;color:var(--muted)}
+.rec-card .v{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums}
+.rec-tbl-wrap{max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.rec-tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;min-width:820px}
+.rec-tbl th{position:sticky;top:0;background:#1B2A4A;color:#fff;padding:7px 8px;font-size:11.5px;
+  text-align:center;white-space:nowrap;cursor:default;left:auto;z-index:2}
+.rec-tbl td{padding:6px 8px;border-bottom:1px solid #EEF1F4;text-align:right;white-space:nowrap;
+  position:static;box-shadow:none;background:none !important}
+.rec-tbl td:first-child,.rec-tbl td.l{text-align:left}
+.rec-st{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px}
+.rec-st.open{background:#FDECEC;color:#C0343B}
+.rec-st.stop{background:#E8EFF8;color:#1B5FA6}
+.rec-st.wait{background:#F0F2F5;color:#4A525C}
+.rec-st.gone{background:#F7F2E8;color:#8A4B00}
+.rec-src{font-size:10.5px;color:var(--muted)}
+
 /* 매매전략 모달 */
 .strat-overlay{display:none;position:fixed;inset:0;background:rgba(15,20,26,.55);
   z-index:50;align-items:flex-start;justify-content:center;padding:26px 14px;overflow-y:auto}
@@ -1000,6 +1043,7 @@ footer{margin-top:26px;font-size:11.5px;color:var(--muted);line-height:1.7;
       <h1>Momentum Watchlist</h1>
       <div class="sub">__DATE__ 기준 · 스캔 대상 __TOTAL__종목 (한국 __KRN__ / 미국 __USN__)
         <button id="stratOpen" class="strat-open">매매전략</button>
+        <button id="recOpen" class="strat-open rec-open">추천 성적표</button>
       </div>
     </div>
     <div class="hact">
@@ -1169,6 +1213,16 @@ RS는 IBD 공식 지표가 아니라 3·6·9·12개월 가중수익률을 유니
 
       <p class="note">위 세 구간은 전부 "1번 이상 초과한 적 있는 종목"만 대상입니다. 최근 60거래일 동안 <b>단 한 번도</b> ±15%를 넘은 적이 없는 종목(이격 지속일수 = 0일)은 세 구간 어디에도 해당하지 않고, "전체"를 선택했을 때만 보입니다. 오류가 아니라 그 종목이 그만큼 변동성 없이 안정적으로 거래돼왔다는 뜻입니다.</p>
     </div>
+  </div>
+</div>
+
+<div id="recOverlay" class="modal-overlay" hidden>
+  <div class="modal rec-modal" role="dialog" aria-modal="true" aria-labelledby="recTitle">
+    <div class="modal-head">
+      <h2 id="recTitle">추천 성적표</h2>
+      <div class="modal-head-btns"><button id="recClose" class="btn-sm">닫기</button></div>
+    </div>
+    <div class="modal-body" id="recBody"></div>
   </div>
 </div>
 
@@ -1379,6 +1433,7 @@ const DATA = __DATA__;
 const DAYS = __DAYS__;      // 같은 폴더에 있는 다른 날짜 대시보드 목록
 const CURRENT = "__CURRENT__";
 const STRATEGY = __STRATEGY__;   // 매매전략 (null이면 버튼 숨김)
+const REC_LEDGER = __REC_LEDGER__;   // 추천 성적표 (rec_ledger.py 결과, 없으면 null)
 const MACRO_SNAPSHOT = __MACRO_SNAPSHOT__;   // market_macro.py 결과 (없으면 [])
 const BREADTH_SNAPSHOT = __BREADTH_SNAPSHOT__;   // market_breadth.py 결과 (없으면 [])
 const MISSED_SNAPSHOT = __MISSED_SNAPSHOT__;   // missed_patterns_data.py 결과 (없으면 {confirmed:[],developing:[]})
@@ -2638,6 +2693,90 @@ document.addEventListener("click", e=>{
   document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
 })();
 
+// ── [2026-10-19] 추천 성적표 팝업 ─────────────────────────
+(function(){
+  const btn = document.getElementById("recOpen");
+  const overlay = document.getElementById("recOverlay");
+  const body = document.getElementById("recBody");
+  if(!btn || !overlay) return;
+  if(!REC_LEDGER || !(REC_LEDGER.entries||[]).length){ btn.style.display="none"; return; }
+  let src="sheet", mk="ALL", stF="";
+  const L = REC_LEDGER;
+  const md = s => s ? `${+s.slice(5,7)}/${+s.slice(8,10)}` : "–";
+  const pf = (v,m) => v==null ? "–" : (m==="KR" ? Math.round(v).toLocaleString() : (+v).toFixed(2));
+  const rc = v => v==null ? "–" : `<span class="${v>0?"pos":(v<0?"neg":"")}" style="font-weight:700">${v>0?"+":""}${v.toFixed(1)}%</span>`;
+  const won = v => v==null ? "–" : `${Math.round(v/10000).toLocaleString()}만원`;
+  const ST = {"보유":"open","손절":"stop","본전청산":"stop","대기":"wait","놓침":"gone","만료":"gone"};
+  function cmpTable(){
+    const row = (s,label)=>{
+      let h=`<tr><td><b>${label}</b></td>`;
+      for(const m of ["KR","US","ALL"]){
+        const x = L.summary[`${s}:${m}`]||{};
+        h += `<td>${x.avg_ret==null?"–":rc(x.avg_ret)}<span class="sub">체결 ${x.filled||0} · 이김 ${x.wins||0} · ${won(x.krw_10m)}</span></td>`;
+      }
+      return h+"</tr>";
+    };
+    return `<div style="overflow-x:auto"><table class="rec-cmp" style="min-width:520px"><thead><tr><th>평균 수익률 (체결 종목)</th><th>한국</th><th>미국</th><th>전체</th></tr></thead><tbody>
+      ${row("sheet","액션시트 추천")}${row("rule","스캐너 규칙 추천")}</tbody></table></div>`;
+  }
+  function render(){
+    const xs = L.entries.filter(e=>(src==="all"||e.src===src) && (mk==="ALL"||e.market===mk) && (!stF || (stF==="done" ? ["손절","본전청산","놓침","만료"].includes(e.status) : e.status===stF)));
+    const s = L.summary[`${src}:${mk}`] || {};
+    const seg = (name, cur, opts) => `<div class="seg" role="group" aria-label="${name}">${opts.map(([v,t])=>`<button type="button" data-rec-${name}="${v}" aria-pressed="${v===cur}">${t}</button>`).join("")}</div>`;
+    let h = `<p class="rec-note">추천한 종목을 액션시트에 적은 규칙대로 매매했다고 보고 매일 자동 계산합니다.
+      매수: 종가가 기준가~기준가+5% 안에 처음 들어온 날 종가 · 손절: 스캐너 손절가와 매수가 -7% 중 높은 쪽, 종가 이탈 시 그 종가에 매도 ·
+      +10% 이상 오르면 손절선을 매수가로 · 10거래일 안에 매수 안 되면 끝. 1천만원은 체결 종목에 똑같이 나눠 넣었다고 본 값입니다.
+      기준: 한국 ${md(L.last_dates.KR)} · 미국 ${md(L.last_dates.US)} 종가 · ${L.start.slice(5).replace("-","/")}부터 추천분</p>`;
+    h += cmpTable();
+    h += `<div class="rec-ctrl">${seg("src",src,[["sheet","액션시트"],["rule","스캐너 규칙"],["all","전체"]])}
+      ${seg("mk",mk,[["ALL","전체"],["KR","한국"],["US","미국"]])}
+      <select class="vcp-filter" id="recStatus" aria-label="상태 필터">
+        <option value="">상태: 전체</option><option value="보유">보유 중</option><option value="손절">손절</option>
+        <option value="대기">매수 대기</option><option value="done">끝남(손절·놓침·만료)</option></select></div>`;
+    h += `<div class="rec-cards">
+      <div class="rec-card"><div class="k">추천</div><div class="v">${s.recs||0}</div></div>
+      <div class="rec-card"><div class="k">체결</div><div class="v">${s.filled||0}</div></div>
+      <div class="rec-card"><div class="k">평균 수익률</div><div class="v">${s.avg_ret==null?"–":rc(s.avg_ret)}</div></div>
+      <div class="rec-card"><div class="k">이긴 거래</div><div class="v">${s.wins||0} / ${s.filled||0}</div></div>
+      <div class="rec-card"><div class="k">1천만원 →</div><div class="v">${won(s.krw_10m)}</div></div>
+      <div class="rec-card"><div class="k">보유 · 손절 · 대기</div><div class="v">${s.open||0} · ${s.stopped||0} · ${s.waiting||0}</div></div>
+    </div>`;
+    h += `<div class="rec-tbl-wrap"><table class="rec-tbl"><thead><tr>
+      <th>추천일</th><th>종목</th><th>시장</th><th>구분</th><th>기준가</th><th>매수</th><th>상태</th><th>손절선</th><th>청산·평가</th><th>수익률</th><th>보유일</th></tr></thead><tbody>`;
+    for(const e of xs){
+      const out = e.exit_price!=null ? `${md(e.exit_date)} ${pf(e.exit_price,e.market)}` : (e.entry_price!=null ? `${md(e.last_date)} ${pf(e.last_price,e.market)}` : "–");
+      const tag = e.src==="sheet" ? (e.rank||"액션시트") : "규칙";
+      h += `<tr><td class="l">${md(e.rec_date)}</td>
+        <td class="l"><b>${esc(e.name||e.ticker)}</b> <span class="rec-src">${e.ticker}</span>${e.note?`<div class="rec-src">${esc(e.note)}</div>`:""}</td>
+        <td>${e.market==="KR"?"한국":"미국"}</td><td class="l rec-src">${esc(tag)}</td>
+        <td>${pf(e.pivot,e.market)}</td>
+        <td>${e.entry_price!=null?`${md(e.entry_date)} ${pf(e.entry_price,e.market)}`:"–"}</td>
+        <td><span class="rec-st ${ST[e.status]||"wait"}">${e.status}</span></td>
+        <td>${e.stop!=null?pf(e.stop,e.market):"–"}</td>
+        <td>${out}</td><td>${rc(e.ret)}</td><td>${e.hold_days==null?"–":e.hold_days+"일"}</td></tr>`;
+    }
+    if(!xs.length) h += `<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:20px">해당하는 추천이 없습니다.</td></tr>`;
+    h += "</tbody></table></div>";
+    body.innerHTML = h;
+    const sel = document.getElementById("recStatus"); sel.value = stF;
+    sel.addEventListener("change", ev=>{ stF = ev.target.value; render(); });
+  }
+  body.addEventListener("click", ev=>{
+    const b = ev.target.closest("button[data-rec-src],button[data-rec-mk]");
+    if(!b) return;
+    ev.stopPropagation();
+    if(b.dataset.recSrc) src = b.dataset.recSrc;
+    if(b.dataset.recMk) mk = b.dataset.recMk;
+    render();
+  });
+  const open = () => { render(); overlay.hidden = false; };
+  const close = () => { overlay.hidden = true; };
+  btn.addEventListener("click", open);
+  document.getElementById("recClose").addEventListener("click", close);
+  overlay.addEventListener("click", e => { if(e.target === overlay) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !overlay.hidden) close(); });
+})();
+
 // ── 작업 로그 팝업 ────────────────────────────────────────
 (function(){
   const btn = document.getElementById("changelogBtn");
@@ -3227,6 +3366,16 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     except Exception as e:
         print(f"[경고] 통과일수 계산 실패(대시보드는 정상 생성됨, D열은 빈칸): {e}")
 
+    rows_today = _rows(df, streaks)
+    rec_json = "null"
+    try:
+        ledger = rec_ledger.update(hist_dir, today_rows=rows_today,
+                                   today_dates=_market_dates(df, {"KR": kr_basis_date.strftime("%Y-%m-%d"),
+                                                                  "US": us_basis_date.strftime("%Y-%m-%d")}))
+        rec_json = json.dumps(ledger, ensure_ascii=False)
+    except Exception as e:
+        print(f"[경고] 추천 성적표 계산 실패(대시보드는 정상 생성됨): {e}")
+
     def _dot(open_): return "open" if open_ else "closed"
 
     # [2026-09-14] "9월 14일 장마감"이라는 표지 날짜와, 실제로 이 화면이
@@ -3238,7 +3387,8 @@ def build(csv_path: str, out_path: str = None, open_browser: bool = True,
     generated_at_label = f"{_now:%Y-%m-%d}({_WEEKDAY_KR[_now.weekday()]}) {_now:%H:%M} KST"
 
     html = (HTML
-            .replace("__DATA__", json.dumps(_rows(df, streaks), ensure_ascii=False))
+            .replace("__DATA__", json.dumps(rows_today, ensure_ascii=False))
+            .replace("__REC_LEDGER__", rec_json)
             .replace("__STRATEGY__", strategy_json)
             .replace("__DATE__", shown_date)
             .replace("__GENERATED_AT__", generated_at_label)
