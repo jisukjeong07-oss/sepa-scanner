@@ -554,10 +554,11 @@ tbody tr.sel{background:#EEF3F8}
 .pd.long{background:#F0F2F5;border-color:#F0F2F5}
 td.pdcell{text-align:center}
 th.pdh{background:#8A4B00 !important}
-#pdTip{position:fixed;z-index:60;width:290px;background:#12161C;color:#fff;border-radius:8px;
+#pdTip{position:fixed;z-index:60;width:max-content;max-width:300px;min-width:180px;background:#12161C;color:#fff;border-radius:8px;
   padding:11px 13px;font-size:12px;line-height:1.6;box-shadow:0 10px 28px rgba(18,22,28,.28);
   pointer-events:none;display:none;text-align:left}
 #pdTip .t{font-weight:800;font-size:13px;margin-bottom:3px}
+#pdTip b{color:#FFC98A;font-weight:700;display:block;margin-bottom:3px}
 #pdTip .fail{color:#F3C987}
 #pdTip .note{margin-top:5px;color:#B8C0CA;font-size:11px}
 .stat.newpass .k{color:#8A4B00;font-weight:700}
@@ -635,8 +636,9 @@ tbody tr.sel td{background:#EEF3F8}
   font-size:11.5px;line-height:1.6;font-weight:400;white-space:normal;
   box-shadow:0 6px 20px rgba(0,0,0,.22);display:none;text-align:left}
 .tip b{color:#FFC98A;font-weight:700;display:block;margin-bottom:3px}
-.cellwrap:hover .tip{display:block}
-.tip.pin{display:block}
+/* [2026-10-19] 종목 열을 고정(sticky)한 뒤로는 칸 안의 툴팁이 아래 행에 가려진다.
+   .tip 은 내용 보관용으로만 두고, 화면에는 #pdTip(고정 위치 떠있는 창)으로 띄운다. */
+.cellwrap:hover .tip,.tip.pin{display:none}
 
 /* 종목 차트 */
 .chart-wrap{margin-top:14px;background:var(--surface);border:1px solid var(--line);
@@ -1807,10 +1809,15 @@ const pdTip = document.getElementById("pdTip");
 let pdPinned = null;
 function showPdTip(btn){
   const d = PD_INDEX.get(btn.dataset.pd);
-  if(!d || !pdTip) return;
-  pdTip.innerHTML = pdTipHtml(d);
+  if(d) floatShow(btn, pdTipHtml(d));
+}
+// 떠 있는 툴팁 하나를 통과일수(D)·미달 조건(종목 칸) 둘 다 같이 쓴다.
+function floatShow(anchor, html){
+  if(!pdTip || !html) return;
+  pdTip.innerHTML = html;
   pdTip.style.display = "block";
-  const r = btn.getBoundingClientRect();
+  const r = anchor.getBoundingClientRect();
+  const btn = anchor;
   const w = pdTip.offsetWidth, hgt = pdTip.offsetHeight;
   let left = Math.min(Math.max(8, r.left - 20), window.innerWidth - w - 8);
   let top = r.bottom + 6;
@@ -1818,14 +1825,21 @@ function showPdTip(btn){
   pdTip.style.left = left + "px"; pdTip.style.top = top + "px";
 }
 function hidePdTip(){ if(pdTip && !pdPinned) pdTip.style.display = "none"; }
-document.addEventListener("mouseover", e=>{ const b=e.target.closest("button[data-pd]"); if(b) showPdTip(b); });
-document.addEventListener("mouseout", e=>{ const b=e.target.closest("button[data-pd]"); if(b && !b.contains(e.relatedTarget)) hidePdTip(); });
+document.addEventListener("mouseover", e=>{
+  const b=e.target.closest("button[data-pd]"); if(b){ showPdTip(b); return; }
+  const w=e.target.closest(".cellwrap"); if(w && !pdPinned) floatShow(w, w.querySelector(".tip")?.innerHTML||"");
+});
+document.addEventListener("mouseout", e=>{
+  const b=e.target.closest("button[data-pd], .cellwrap");
+  if(b && !b.contains(e.relatedTarget)) hidePdTip();
+});
 document.addEventListener("focusin", e=>{ const b=e.target.closest("button[data-pd]"); if(b) showPdTip(b); });
 document.addEventListener("focusout", e=>{ const b=e.target.closest("button[data-pd]"); if(b) hidePdTip(); });
 // 모바일: 탭하면 고정, 다른 곳을 누르면 닫힘. 행 클릭(차트 열기)으로 번지지 않게 막는다.
 document.addEventListener("click", e=>{
   const b=e.target.closest("button[data-pd]");
   if(b){ e.stopPropagation(); pdPinned = (pdPinned===b) ? null : b; if(pdPinned) showPdTip(b); else hidePdTip(); return; }
+  if(e.target.closest('.badge[data-tip]')) return;   // 미달 조건 배지는 아래 클릭 처리에서 열고 닫는다
   if(pdPinned){ pdPinned=null; hidePdTip(); }
 }, true);
 window.addEventListener("scroll", ()=>{ pdPinned=null; hidePdTip(); }, true);
@@ -1885,6 +1899,8 @@ function setupHbar(){
   }, {passive:false});
 }
 window.addEventListener("resize", setupHbar);
+window.addEventListener("load", setupHbar);
+if(window.ResizeObserver){ new ResizeObserver(()=>setupHbar()).observe(document.getElementById("host")); }
 
 document.addEventListener("click",e=>{
   const seg=e.target.closest(".seg button");
@@ -1918,9 +1934,9 @@ document.addEventListener("click",e=>{
   const badge=e.target.closest('.badge[data-tip]');
   if(badge){
     e.stopPropagation();
-    const tip=badge.closest(".cellwrap")?.querySelector(".tip");
-    document.querySelectorAll(".tip.pin").forEach(t=>{ if(t!==tip) t.classList.remove("pin"); });
-    tip?.classList.toggle("pin");
+    const wrap=badge.closest(".cellwrap");
+    if(pdPinned===wrap){ pdPinned=null; hidePdTip(); }
+    else if(wrap){ pdPinned=wrap; floatShow(wrap, wrap.querySelector(".tip")?.innerHTML||""); }
     return;
   }
 
