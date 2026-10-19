@@ -1,13 +1,13 @@
 {
   "tt8_count": 92,
   "tt8_pct": 3.57,
-  "tt7_count": 81,
+  "tt7_count": 85,
   "trend_ex_rs_pct": 3.57,
-  "nh52": 49,
-  "nl52": 22,
-  "net_hl": 27,
-  "above200_pct": 18.46,
-  "above50_pct": 29.04,
+  "nh52": 47,
+  "nl52": 129,
+  "net_hl": -82,
+  "above200_pct": 18.53,
+  "above50_pct": 29.47,
   "n_universe": 2738,
   "n_valid": 2579,
   "status": "live",
@@ -15,5 +15,5 @@
   "market": "KR_TOTAL",
   "data_date": "20261016",
   "source": "live",
-  "generated_at": "2026-10-16T16:31:00"
+  "generated_at": "2026-10-20T05:27:45"
 }
