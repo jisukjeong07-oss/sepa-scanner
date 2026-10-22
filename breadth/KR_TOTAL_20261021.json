@@ -3,11 +3,11 @@
   "tt8_pct": 3.02,
   "tt7_count": 84,
   "trend_ex_rs_pct": 3.02,
-  "nh52": 51,
-  "nl52": 40,
-  "net_hl": 11,
-  "above200_pct": 17.95,
-  "above50_pct": 26.82,
+  "nh52": 49,
+  "nl52": 146,
+  "net_hl": -97,
+  "above200_pct": 17.79,
+  "above50_pct": 26.94,
   "n_universe": 2739,
   "n_valid": 2580,
   "status": "live",
@@ -15,5 +15,5 @@
   "market": "KR_TOTAL",
   "data_date": "20261021",
   "source": "live",
-  "generated_at": "2026-10-21T16:27:22"
+  "generated_at": "2026-10-23T05:29:16"
 }
