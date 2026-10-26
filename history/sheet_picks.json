@@ -29,6 +29,7 @@
     {"date": "2026-10-20", "market": "KR", "ticker": "096770", "name": "SK이노베이션", "pivot": 165400, "rank": "2순위 대기", "note": "삼성SDI와 같은 업종, 하나만"},
     {"date": "2026-10-20", "market": "US", "ticker": "XOM", "name": "엑슨모빌", "pivot": 179.30, "stop": 177.20, "rank": "1순위", "note": "거래량 1.4배 이상 돌파만, 실적 전 절반"},
     {"date": "2026-10-20", "market": "US", "ticker": "BIIB", "name": "바이오젠", "pivot": 240.99, "stop": 231.04, "rank": "2순위"},
-    {"date": "2026-10-21", "market": "US", "ticker": "IQV", "name": "IQVIA", "pivot": 272.98, "stop": 256.13, "rank": "2순위", "note": "BIIB와 둘 중 하나만"}
+    {"date": "2026-10-21", "market": "US", "ticker": "IQV", "name": "IQVIA", "pivot": 272.98, "stop": 256.13, "rank": "2순위", "note": "BIIB와 둘 중 하나만"},
+    {"date": "2026-10-22", "market": "US", "ticker": "PLTR", "name": "팔란티어", "pivot": 203.55, "stop": 186.15, "rank": "2차 매수", "note": "보유 종목 추가 매수, 거래량 1.4배 이상"}
   ]
 }
