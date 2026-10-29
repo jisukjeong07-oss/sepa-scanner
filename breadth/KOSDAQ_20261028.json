@@ -1,13 +1,13 @@
 {
-  "tt8_count": 46,
-  "tt8_pct": 2.66,
-  "tt7_count": 61,
-  "trend_ex_rs_pct": 2.66,
-  "nh52": 46,
-  "nl52": 45,
-  "net_hl": 1,
-  "above200_pct": 16.4,
-  "above50_pct": 25.87,
+  "tt8_count": 47,
+  "tt8_pct": 2.71,
+  "tt7_count": 60,
+  "trend_ex_rs_pct": 2.71,
+  "nh52": 42,
+  "nl52": 127,
+  "net_hl": -85,
+  "above200_pct": 16.28,
+  "above50_pct": 25.92,
   "n_universe": 1871,
   "n_valid": 1732,
   "status": "live",
@@ -15,5 +15,5 @@
   "market": "KOSDAQ",
   "data_date": "20261028",
   "source": "live",
-  "generated_at": "2026-10-28T16:31:38"
+  "generated_at": "2026-10-30T05:26:47"
 }
