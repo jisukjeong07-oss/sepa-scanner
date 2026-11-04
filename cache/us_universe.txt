@@ -271,7 +271,6 @@ KMB	Kimberly-Clark
 KMI	Kinder Morgan
 KO	Coca-Cola Company (The)
 KR	Kroger
-KVUE	Kenvue
 L	Loews Corporation
 LDOS	Leidos
 LEN	Lennar
@@ -345,6 +344,7 @@ NXPI	NXP Semiconductors
 O	Realty Income
 ODFL	Old Dominion
 OKE	Oneok
+OKTA	Okta, Inc.
 OMC	Omnicom Group
 ON	ON Semiconductor
 ORCL	Oracle Corporation
