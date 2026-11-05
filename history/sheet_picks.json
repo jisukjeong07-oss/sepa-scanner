@@ -30,6 +30,11 @@
     {"date": "2026-10-20", "market": "US", "ticker": "XOM", "name": "엑슨모빌", "pivot": 179.30, "stop": 177.20, "rank": "1순위", "note": "거래량 1.4배 이상 돌파만, 실적 전 절반"},
     {"date": "2026-10-20", "market": "US", "ticker": "BIIB", "name": "바이오젠", "pivot": 240.99, "stop": 231.04, "rank": "2순위"},
     {"date": "2026-10-21", "market": "US", "ticker": "IQV", "name": "IQVIA", "pivot": 272.98, "stop": 256.13, "rank": "2순위", "note": "BIIB와 둘 중 하나만"},
-    {"date": "2026-10-22", "market": "US", "ticker": "PLTR", "name": "팔란티어", "pivot": 203.55, "stop": 186.15, "rank": "2차 매수", "note": "보유 종목 추가 매수, 거래량 1.4배 이상"}
+    {"date": "2026-10-22", "market": "US", "ticker": "PLTR", "name": "팔란티어", "pivot": 203.55, "stop": 186.15, "rank": "2차 매수", "note": "보유 종목 추가 매수, 거래량 1.4배 이상"},
+    {"date": "2026-10-29", "market": "KR", "ticker": "092870", "name": "엑시콘", "pivot": 67500, "stop": 62800, "rank": "1순위", "note": "FTD 뒤 시험 매수, 절반 비중, 거래량 1.5배"},
+    {"date": "2026-10-29", "market": "KR", "ticker": "064290", "name": "인텍플러스", "pivot": 64400, "stop": 59900, "rank": "2순위", "note": "엑시콘과 둘 중 하나만"},
+    {"date": "2026-10-29", "market": "US", "ticker": "WST", "name": "웨스트 파마슈티컬", "pivot": 405.71, "stop": 396.83, "rank": "1순위", "note": "거래량 1.4배, 절반 비중"},
+    {"date": "2026-10-29", "market": "US", "ticker": "LLY", "name": "일라이릴리", "pivot": 1321.21, "stop": 1257.62, "rank": "2순위", "note": "WST와 둘 중 하나만"},
+    {"date": "2026-11-04", "market": "US", "ticker": "ABBV", "name": "애브비", "pivot": 298.74, "stop": 291.01, "rank": "1순위", "note": "중간선거 뒤 수요일부터, 거래량 1.4배, 절반 비중"}
   ]
 }
