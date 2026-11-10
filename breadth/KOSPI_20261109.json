@@ -1,13 +1,13 @@
 {
-  "tt8_count": 17,
-  "tt8_pct": 2.01,
+  "tt8_count": 16,
+  "tt8_pct": 1.89,
   "tt7_count": 21,
-  "trend_ex_rs_pct": 2.01,
+  "trend_ex_rs_pct": 1.89,
   "nh52": 14,
-  "nl52": 68,
-  "net_hl": -54,
-  "above200_pct": 12.17,
-  "above50_pct": 12.53,
+  "nl52": 85,
+  "net_hl": -71,
+  "above200_pct": 11.94,
+  "above50_pct": 12.29,
   "n_universe": 871,
   "n_valid": 846,
   "status": "live",
@@ -15,5 +15,5 @@
   "market": "KOSPI",
   "data_date": "20261109",
   "source": "live",
-  "generated_at": "2026-11-09T16:28:47"
+  "generated_at": "2026-11-11T06:26:50"
 }
