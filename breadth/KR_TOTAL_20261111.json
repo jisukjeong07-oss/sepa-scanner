@@ -1,19 +1,19 @@
 {
   "tt8_count": 59,
   "tt8_pct": 2.29,
-  "tt7_count": 71,
+  "tt7_count": 69,
   "trend_ex_rs_pct": 2.29,
-  "nh52": 53,
-  "nl52": 30,
-  "net_hl": 23,
-  "above200_pct": 12.76,
-  "above50_pct": 18.62,
-  "n_universe": 2749,
+  "nh52": 50,
+  "nl52": 127,
+  "net_hl": -77,
+  "above200_pct": 12.68,
+  "above50_pct": 18.5,
+  "n_universe": 2750,
   "n_valid": 2578,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KR_TOTAL",
   "data_date": "20261111",
   "source": "live",
-  "generated_at": "2026-11-11T16:27:38"
+  "generated_at": "2026-11-13T06:28:42"
 }

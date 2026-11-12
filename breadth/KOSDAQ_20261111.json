@@ -1,19 +1,19 @@
 {
   "tt8_count": 41,
   "tt8_pct": 2.37,
-  "tt7_count": 47,
+  "tt7_count": 46,
   "trend_ex_rs_pct": 2.37,
-  "nh52": 36,
-  "nl52": 15,
-  "net_hl": 21,
-  "above200_pct": 12.24,
-  "above50_pct": 18.3,
-  "n_universe": 1878,
+  "nh52": 34,
+  "nl52": 92,
+  "net_hl": -58,
+  "above200_pct": 12.18,
+  "above50_pct": 18.07,
+  "n_universe": 1879,
   "n_valid": 1732,
   "status": "live",
   "hilo_basis": "intraday",
   "market": "KOSDAQ",
   "data_date": "20261111",
   "source": "live",
-  "generated_at": "2026-11-11T16:27:37"
+  "generated_at": "2026-11-13T06:28:41"
 }
