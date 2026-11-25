@@ -4,8 +4,8 @@
   "tt7_count": 21,
   "trend_ex_rs_pct": 2.25,
   "nh52": 11,
-  "nl52": 34,
-  "net_hl": -23,
+  "nl52": 57,
+  "net_hl": -46,
   "above200_pct": 10.4,
   "above50_pct": 14.78,
   "n_universe": 869,
@@ -15,5 +15,5 @@
   "market": "KOSPI",
   "data_date": "20261124",
   "source": "live",
-  "generated_at": "2026-11-24T16:29:47"
+  "generated_at": "2026-11-26T06:30:05"
 }
