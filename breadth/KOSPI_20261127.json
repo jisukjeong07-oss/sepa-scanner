@@ -1,0 +1,19 @@
+{
+  "tt8_count": 20,
+  "tt8_pct": 2.36,
+  "tt7_count": 25,
+  "trend_ex_rs_pct": 2.36,
+  "nh52": 12,
+  "nl52": 18,
+  "net_hl": -6,
+  "above200_pct": 12.77,
+  "above50_pct": 19.98,
+  "n_universe": 869,
+  "n_valid": 846,
+  "status": "live",
+  "hilo_basis": "intraday",
+  "market": "KOSPI",
+  "data_date": "20261127",
+  "source": "live",
+  "generated_at": "2026-11-27T16:32:00"
+}
